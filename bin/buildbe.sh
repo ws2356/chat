@@ -39,9 +39,3 @@ cp "${root_dir}/ormconfig.json" "${root_dir}/dist/ormconfig.json"
 cp "${root_dir}/.env" "${root_dir}/dist/"
 test -r "${root_dir}/.nvmrc" && cp "${root_dir}/.nvmrc" "${root_dir}/dist/"
 
-rm -rf "${root_dir}/dist/templates"
-cp -a "${root_dir}/templates" "${root_dir}/dist"
-
-rm -rf "${root_dir}/dist/config"
-cp -a "${root_dir}/config" "${root_dir}/dist"
-
