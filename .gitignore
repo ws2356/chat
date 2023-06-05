@@ -1,0 +1,6 @@
+.tags
+dist/
+node_modules/
+config/*.json
+/ormconfig.json
+.env
