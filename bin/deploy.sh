@@ -103,14 +103,14 @@ docker container stop "$container_name" 2>/dev/null \
 
 docker rmi "$image_name_version" 2>/dev/null || true
 
-port="${port:-8010}"
+port="${port:-8030}"
 
 docker build -t "$image_name_version" \
   .
 docker run -d \
   --restart always \
   --network sa-net \
-  -p "${port}:8010" \
+  -p "${port}:8030" \
   --name "$container_name" \
   "$image_name_version"
 

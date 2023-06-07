@@ -10,6 +10,7 @@ import { urlencoded, json } from 'body-parser'
 import _ from 'lodash'
 import cors from 'cors'
 import * as qs from 'qs'
+import xmlParser from 'express-xml-bodyparser'
 import router from './router'
 import { initDb } from './db'
 
@@ -28,9 +29,10 @@ const readFileAsync = util.promisify(fs.readFile);
   app.set('trust proxy', true)
   app.use(cookieParser())
   app.use(json())
+  app.use(xmlParser())
   app.use(urlencoded({ extended: true, limit: 1000 }))
   app.use(cors({
-    origin: /(\/\/|\.)wansong\.vip(\/|$)|^http:\/\/localhost:801[0-9]/,
+    origin: /(\/\/|\.)wansong\.vip(\/|$)|^http:\/\/localhost:803[0-9]/,
   }))
 
   app.get('/echo', async (req, res) => {
@@ -75,26 +77,9 @@ const readFileAsync = util.promisify(fs.readFile);
     })
   })
 
-  app.use('/api/', router)
+  app.use('/', router)
 
-  let indexHtml: string = ''
-  try {
-    indexHtml = await readFileAsync('public/index.html', 'utf8')
-  } catch (e) {
-    console.error(`failed to access public/index.html: ${e}`)
-    process.exit(1)
-  }
-  app.use(['/signin', '/signup'], (req, res) => {
-    // console.error(`redirecting: ${req.originalUrl}`)
-    // const query = qs.stringify(req.query)
-    // res.redirect(301,`/${query ? `?${query}` : ''}`)
-    res.type('text/html')
-    res.send(indexHtml)
-  })
-
-  app.use(express.static('public'))
-
-  const port = 8010
+  const port = 8030
   app.listen(port, () => {
     console.log(`server started on port: ${port}`)
   })
