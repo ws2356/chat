@@ -10,6 +10,7 @@ export const WECHAT_API_BASE = 'https://api.weixin.qq.com'
 export const MLGB_CLIENT_ID = 'wxb1262e2e56614d15'
 export const MLGB_ACCESS_TOKEN_RESERVE_FRESH_MS = 300000 // 5 minutes
 export const GPT_API_URL = 'https://r2d2.openai.azure.com/openai/deployments/gpt35Model/chat/completions?api-version=2023-03-15-preview'
+export const GPT_REQUEST_LOAD_TIMEOUT_MS = 30000 // 30 seconds
 
 export const GPT_SYSTEM_ROLE_INFO = {
   role: 'system',

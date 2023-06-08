@@ -22,15 +22,15 @@ export class ChatMessage {
   msgType!: string
 
   @Column({ nullable: false })
-  content?: string
+  content!: string
 
-  @Column({ nullable: false })
+  @Column({ name: 'to_user_name', length: 32, nullable: false })
   toUserName!: string
 
   @Column({ name: 'create_time', nullable: false })
   createTime?: Date
 
-  @OneToOne(() => ChatReply)
+  @OneToOne(() => ChatReply, { eager: true, cascade: true })
   @JoinColumn({ name: 'reply_id' })
   reply!: ChatReply
 }

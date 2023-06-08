@@ -9,7 +9,7 @@ export class ChatReply {
   @OneToOne(() => ChatMessage, (msg) => msg.reply)
   chatMessage!: ChatMessage
 
-  @Column({ nullable: false })
+  @Column({ nullable: true })
   reply?: string
 
   // 1: loaded, 2: pending, 3: fail
@@ -22,6 +22,6 @@ export class ChatReply {
   @Column({ name: 'created_at', nullable: false })
   createdAt!: Date
 
-  @Column({ name: 'updated_at', nullable: false })
-  updatedAt!: Date
+  @Column({ name: 'loaded_at', nullable: true })
+  loadedAt?: Date
 }

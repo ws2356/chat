@@ -1,7 +1,8 @@
 import express from 'express'
-import { handleWechatEvent } from './ctrls/chat'
+import { handleWechatEvent, healthCheck } from './ctrls/chat'
 
 const router = express.Router()
 router.post('/', handleWechatEvent)
+router.get('/health', healthCheck)
 
 export = router

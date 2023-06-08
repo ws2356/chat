@@ -1,24 +1,13 @@
 import express from 'express'
 import { Readable } from 'stream'
-import { InsertResult } from "typeorm"
-import { v4 as uuidv4 } from 'uuid'
-import { parse as parseTld } from 'tldts'
 import axios from 'axios'
-import config from 'config'
-import md5 from 'md5'
-import _ from 'lodash'
+import _, { get } from 'lodash'
 import * as xml2js from 'xml2js'
 import { getChatMessageRepo, dataSource, getChatReplyRepo } from '../db'
 import { ChatMessage } from '../entity/chat_message'
 import { waitMs } from './helper/auth_helper'
-import { AUTH_STATUS_OK, AUTH_STATUS_PENDING, AUTH_TYPE_EMAIL, MLGB_ACCESS_TOKEN_RESERVE_FRESH_MS, MLGB_CLIENT_ID, AUTH_TYPE_MLGB, GPT_API_URL, GPT_REQUEST_TEMPLATE, GPT_SYSTEM_ROLE_INFO } from '../constants'
-import { send } from 'process'
+import { AUTH_TYPE_MLGB, GPT_API_URL, GPT_REQUEST_TEMPLATE, GPT_SYSTEM_ROLE_INFO, GPT_REQUEST_LOAD_TIMEOUT_MS } from '../constants'
 
-const urlRegex = /https?:\/\//i
-
-const tokenName = 'token-of-auth'
-
-const authSessionTtl = config.get('authSessionTtl') as number
 
 async function sendResult(res: express.Response, status: number, result: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -34,13 +23,30 @@ async function sendResult(res: express.Response, status: number, result: string)
     readable.pipe(res.status(status))
   })
 }
-const UNEXPECTED_ERROR = new Error('insert fail unexpected')
+
+export async function healthCheck(req: express.Request, res: express.Response) {
+  res.type('application/xml')
+  try {
+    await sendResult(res, 200, 'success')
+    console.log('healthCheck ok')
+  } catch (error) {
+    console.error(`healthCheck error: ${error}`)
+  }
+}
+
+const UNEXPECTED_INSERT_ERROR = new Error('insert fail unexpected')
 export async function handleWechatEvent(req: express.Request, res: express.Response) {
   res.type('application/xml')
 
   const data: any = req.body || {}
   console.log(`body: ${JSON.stringify(data, null, 4)}`)
-  const { ToUserName, FromUserName, CreateTime, MsgType, Content, MsgId } = data.xml
+  const {
+    tousername: ToUserName,
+    fromusername: FromUserName,
+    createtime: CreateTime,
+    msgtype: MsgType,
+    content: Content,
+    msgid: MsgId } = _.mapValues(data.xml, (v: any) => v && v[0])
 
   if (typeof MsgId !== 'string' ||
     typeof MsgType !== 'string' ||
@@ -61,7 +67,18 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
   const [chatMessage, isCreated] = await dataSource.transaction(async (manager) => {
     const now = new Date()
     try {
-      const insertRes = await getChatMessageRepo(manager).insert({
+      const chatMessage = await getChatMessageRepo(manager).findOne({
+        where: {
+          authType: AUTH_TYPE_MLGB,
+          authId: FromUserName,
+          msgId: MsgId,
+          msgType: MsgType,
+        }
+      })
+      if (chatMessage) {
+        return [chatMessage, false]
+      }
+      const insertMessageRes = await getChatMessageRepo(manager).insert({
         authType: AUTH_TYPE_MLGB,
         authId: FromUserName,
         msgId: MsgId,
@@ -69,41 +86,36 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
         content: Content,
         toUserName: ToUserName,
         createTime: new Date(parseInt(CreateTime) * 1000),
-        reply: {
-          loadStatus: 2,
-          createdAt: now,
-          updatedAt: now,
-        }
       })
-      if (insertRes.identifiers.length !== 1) {
+      if (insertMessageRes.identifiers.length !== 1) {
         // TODO: remove debug code - should not throw error here
-        throw UNEXPECTED_ERROR
+        throw UNEXPECTED_INSERT_ERROR
       }
+
+      const insertReplyRes = await getChatReplyRepo(manager).insert({
+        loadStatus: 2,
+        createdAt: now,
+      })
+      if (insertReplyRes.identifiers.length !== 1) {
+        // TODO: remove debug code - should not throw error here
+        throw UNEXPECTED_INSERT_ERROR
+      }
+
+      await getChatMessageRepo(manager).update(
+        { id: insertMessageRes.identifiers[0].id },
+        { reply: insertReplyRes.identifiers[0] }
+      )
+
       return getChatMessageRepo(manager).findOne({
         where: {
-          authType: AUTH_TYPE_MLGB,
-          authId: FromUserName,
-          msgId: MsgId,
+          id: insertMessageRes.identifiers[0].id,
         },
       })
       .then((chatMessage: ChatMessage | null) => [chatMessage, true])
     } catch (error) {
-      // TODO: remove debug code
-      if (error === UNEXPECTED_ERROR) {
-        console.error(`unexpected error: ${error}`)
-        res.status(500).send('server fail')
-        throw error
-      }
-      if (!chatMessage) {
-        console.error(`assumption of duplicate key error not correct: ${error}`)
-        res.status(500).send(`assumption of duplicate key error not correct: ${error}`)
-        throw error
-      }
+      console.error(`db query fail: ${error}`)
       // Assuming duplicate key error
-      return getChatMessageRepo(manager).findOne({
-        where: { msgId: MsgId },
-      })
-      .then((chatMessage: ChatMessage | null) => [chatMessage, false])
+      return [null, false]
     }
   })
 
@@ -114,8 +126,11 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
   }
 
   // TODO: handle retry
+  const isLoadingTimeout = chatMessage.reply.loadStatus === 2 &&
+    (new Date().getTime() - chatMessage.reply.createdAt.getTime()) > GPT_REQUEST_LOAD_TIMEOUT_MS
+
   let replyContent = ''
-  if (chatMessage.reply.loadStatus === 3 || isCreated) {
+  if (chatMessage.reply.loadStatus === 3 || isCreated || isLoadingTimeout) {
     const gptRequestBody = {
       ...GPT_REQUEST_TEMPLATE,
       messages: [
@@ -141,11 +156,11 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
       const gptRespData = gptResp.data
       const { content } = _.get(gptRespData, ['choices', 0, 'message'], {})
       replyContent = content || ''
-      await getChatReplyRepo().update({ reply: content || '', loadStatus: 1 }, { id: chatMessage.reply.id })
+      await getChatReplyRepo().update({ id: chatMessage.reply.id }, { reply: content || '', loadStatus: 1, loadedAt: new Date() })
     } catch (error) {
       console.error(`db query fail: ${error}`)
       res.status(500).send('server fail')
-      await getChatReplyRepo().update({ loadStatus: 3 }, { id: chatMessage.reply.id })
+      await getChatReplyRepo().update({ id: chatMessage.reply.id }, { loadStatus: 3 })
       return
     }
   } else {
@@ -170,7 +185,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
     ToUserName: FromUserName,
     FromUserName: ToUserName,
     CreateTime: Math.floor(Date.now() / 1000),
-    MsgType: 'text',
+    MsgType,
     Content: replyContent,
   }
   const replyXml = new xml2js.Builder().buildObject({ xml: replyMessage })
@@ -184,7 +199,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
   }
 
   try {
-    await getChatReplyRepo().update({ replied: true }, { id: chatMessage.reply.id })
+    await getChatReplyRepo().update({ id: chatMessage.reply.id }, { replied: true })
   } catch (error) {
     console.error(`update replied = true fail: ${error}`)
   }

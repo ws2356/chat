@@ -29,9 +29,5 @@ test -r "${NVM_DIR}/nvm.sh" && . "$_" || true
 
 export NODE_ENV=development
 
-"${this_dir}/buildfe.sh"
-rm -rf "${root_dir}/dist/public"
-ln -s "${root_dir}/frontend/build"/ "${root_dir}/dist/public"
-
 cd "${root_dir}/dist"
 nvm exec -- node "${root_dir}/dist/src/index.js"
