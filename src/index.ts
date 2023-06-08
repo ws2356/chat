@@ -7,7 +7,7 @@ import * as util from 'util'
 import cookieParser from 'cookie-parser'
 import ejs from 'ejs'
 import { urlencoded, json } from 'body-parser'
-import _ from 'lodash'
+import _, { random } from 'lodash'
 import cors from 'cors'
 import * as qs from 'qs'
 import xmlParser from 'express-xml-bodyparser'
@@ -62,8 +62,10 @@ const readFileAsync = util.promisify(fs.readFile);
   })
 
   app.use((req, res, next) => {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.host} ${req.url}`)
+    const reqId = Math.random().toString(36).substr(2, 8)
+    console.log(`[${new Date().toISOString()}] ${reqId} ${req.method} ${req.host} ${req.url} start`)
     next()
+    console.log(`[${new Date().toISOString()}] ${reqId} ${req.method} ${req.host} ${req.url} end`)
   })
 
   app.get('/302setcookie', (req, res) => {
