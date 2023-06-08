@@ -39,10 +39,6 @@ done
 this_dir="$(dirname "$this_file")"
 root_dir="${this_dir}/.."
 
-git submodule update
-
-"${this_dir}/buildfe.sh"
-
 node_image=
 get_node_image() {
   local dockerfile="${root_dir}/Dockerfile"

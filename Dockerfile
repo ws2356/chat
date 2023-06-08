@@ -11,11 +11,8 @@ COPY --chown=node:node \
 COPY --chown=node:node tsconfig.json ./
 COPY --chown=node:node bin/ ./bin/
 COPY --chown=node:node src/ ./src/
-COPY --chown=node:node config/ ./config/
-COPY --chown=node:node templates/ ./templates/
 
 RUN NODE_ENV=production npm run build
-COPY --chown=node:node frontend/build/ ./dist/public/
 
 
 # npm install with --omit=dev & copy from build
