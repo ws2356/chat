@@ -39,7 +39,6 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
   res.type('application/xml')
 
   const data: any = req.body || {}
-  console.log(`body: ${JSON.stringify(data, null, 4)}`)
   const {
     tousername: ToUserName,
     fromusername: FromUserName,
@@ -192,7 +191,6 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
 
   try {
     await sendResult(res, 200, replyXml)
-    console.log(`reply success: ${replyXml}}`)
   } catch (error) {
     // no need to call res.send again, because sendResult already call res.send on success and res.end on error
     console.error(`sendResult fail: ${error}`)
