@@ -37,5 +37,5 @@ cp "${root_dir}/ormconfig.json" "${root_dir}/dist/ormconfig.json"
 (cd "${root_dir}/dist/" && ln -sf "../bin/migrate.sh" .)
 
 cp "${root_dir}/.env" "${root_dir}/dist/"
-test -r "${root_dir}/.nvmrc" && cp "${root_dir}/.nvmrc" "${root_dir}/dist/"
+test -r "${root_dir}/.nvmrc" && cp "${root_dir}/.nvmrc" "${root_dir}/dist/" || true
 
