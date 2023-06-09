@@ -1,7 +1,7 @@
 import express from 'express'
 import { Readable } from 'stream'
 import axios from 'axios'
-import _, { get } from 'lodash'
+import _ from 'lodash'
 import * as xml2js from 'xml2js'
 import { getChatMessageRepo, dataSource, getChatReplyRepo } from '../db'
 import { ChatMessage } from '../entity/chat_message'
@@ -138,6 +138,9 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
       ]
     }
     try {
+      const timerLabel = `[${res.locals.reqId}] start request gpt`
+      console.time(timerLabel)
+      console.log(timerLabel)
       const gptResp = await axios.post(
         GPT_API_URL,
         gptRequestBody,
@@ -147,17 +150,19 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
             'Content-Type': 'application/json'
           }
         })
+      console.timeEnd(timerLabel)
       if (gptResp.status !== 200) {
-        console.error(`gpt api fail: ${gptResp.status}, ${JSON.stringify(gptResp.data, null, 4)}`)
+        console.error(`[${res.locals.reqId}] gpt api fail: ${gptResp.status}, ${JSON.stringify(gptResp.data, null, 4)}`)
         res.status(500).send('server fail')
         return
       }
+
       const gptRespData = gptResp.data
       const { content } = _.get(gptRespData, ['choices', 0, 'message'], {})
       replyContent = content || ''
       await getChatReplyRepo().update({ id: chatMessage.reply.id }, { reply: content || '', loadStatus: 1, loadedAt: new Date() })
     } catch (error) {
-      console.error(`db query fail: ${error}`)
+      console.error(`[${res.locals.reqId}] db query fail: ${error}`)
       res.status(500).send('server fail')
       await getChatReplyRepo().update({ id: chatMessage.reply.id }, { loadStatus: 3 })
       return

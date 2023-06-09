@@ -63,9 +63,10 @@ const readFileAsync = util.promisify(fs.readFile);
 
   app.use((req, res, next) => {
     const reqId = Math.random().toString(36).substr(2, 8)
-    console.log(`[${new Date().toISOString()}] ${reqId} ${req.method} ${req.host} ${req.url} start`)
+    res.locals.reqId = reqId
+    console.log(`[${reqId}] [${new Date().toISOString()}] ${req.method} ${req.host} ${req.url} start`)
     next()
-    console.log(`[${new Date().toISOString()}] ${reqId} ${req.method} ${req.host} ${req.url} end`)
+    console.log(`[${reqId}] [${new Date().toISOString()}] ${req.method} ${req.host} ${req.url} end`)
   })
 
   app.get('/302setcookie', (req, res) => {

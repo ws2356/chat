@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -eu
 
-declare -r url=http://localhost:8030
+declare -r url=${url:-http://localhost:8030}
 
 respText=$(curl "${url}/health")
 if [ "$respText" = 'success' ] ; then
