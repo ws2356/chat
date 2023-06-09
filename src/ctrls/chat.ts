@@ -7,6 +7,7 @@ import { getChatMessageRepo, dataSource, getChatReplyRepo } from '../db'
 import { ChatMessage } from '../entity/chat_message'
 import { waitMs } from './helper/auth_helper'
 import { AUTH_TYPE_MLGB, GPT_API_URL, GPT_REQUEST_TEMPLATE, GPT_SYSTEM_ROLE_INFO, GPT_REQUEST_LOAD_TIMEOUT_MS } from '../constants'
+import { ChatReply } from '../entity/chat_reply'
 
 
 async function sendResult(res: express.Response, status: number, result: string): Promise<void> {
@@ -34,7 +35,43 @@ export async function healthCheck(req: express.Request, res: express.Response) {
   }
 }
 
-const UNEXPECTED_INSERT_ERROR = new Error('insert fail unexpected')
+async function sendReply(res: express.Response, wechatEvent: WechatEvent, replyContent: string) {
+  const replyMessage = {
+    ToUserName: wechatEvent.FromUserName,
+    FromUserName: wechatEvent.ToUserName,
+    CreateTime: Math.floor(Date.now() / 1000),
+    MsgType: wechatEvent.MsgType,
+    Content: replyContent,
+  }
+  const replyXml = new xml2js.Builder().buildObject({ xml: replyMessage })
+  try {
+    await sendResult(res, 200, replyXml)
+  } catch (error) {
+    console.error(`[${res.locals.reqId}] sendReply fail: ${error}`)
+  }
+}
+
+function isReplyValid(reply: ChatReply): boolean {
+  return reply.loadStatus === 1 && !_.isEmpty(reply.reply)
+}
+
+async function markReplyAsReplied(id: number, reply: Partial<ChatReply>) {
+  try {
+    await getChatReplyRepo().update(id, { ...reply, replied: true })
+  } catch (error) {
+    console.error(`markReplyAsReplied error: ${error}`)
+  }
+}
+
+type WechatEvent = {
+  ToUserName: string,
+  FromUserName: string,
+  CreateTime: string,
+  MsgType: string,
+  Content: string,
+  MsgId: string,
+}
+
 export async function handleWechatEvent(req: express.Request, res: express.Response) {
   res.type('application/xml')
 
@@ -63,8 +100,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
     return
   }
 
-  const [chatMessage, isCreated] = await dataSource.transaction(async (manager) => {
-    const now = new Date()
+  const chatMessage = await dataSource.transaction(async (manager) => {
     try {
       const chatMessage = await getChatMessageRepo(manager).findOne({
         where: {
@@ -75,9 +111,11 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
         }
       })
       if (chatMessage) {
-        return [chatMessage, false]
+        return chatMessage
       }
-      const insertMessageRes = await getChatMessageRepo(manager).insert({
+
+      const now = new Date()
+      const ret = await getChatMessageRepo(manager).save({
         authType: AUTH_TYPE_MLGB,
         authId: FromUserName,
         msgId: MsgId,
@@ -86,50 +124,41 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
         toUserName: ToUserName,
         createTime: new Date(parseInt(CreateTime) * 1000),
       })
-      if (insertMessageRes.identifiers.length !== 1) {
-        // TODO: remove debug code - should not throw error here
-        throw UNEXPECTED_INSERT_ERROR
-      }
-
-      const insertReplyRes = await getChatReplyRepo(manager).insert({
-        loadStatus: 2,
+      const reply = await getChatReplyRepo(manager).save({
+        loadStatus: 4,
         createdAt: now,
+        chatMessage: ret,
       })
-      if (insertReplyRes.identifiers.length !== 1) {
-        // TODO: remove debug code - should not throw error here
-        throw UNEXPECTED_INSERT_ERROR
-      }
-
-      await getChatMessageRepo(manager).update(
-        { id: insertMessageRes.identifiers[0].id },
-        { reply: insertReplyRes.identifiers[0] }
-      )
-
-      return getChatMessageRepo(manager).findOne({
-        where: {
-          id: insertMessageRes.identifiers[0].id,
-        },
-      })
-      .then((chatMessage: ChatMessage | null) => [chatMessage, true])
+      ret.replies = [reply]
+      return ret
     } catch (error) {
-      console.error(`db query fail: ${error}`)
+      console.error(`[${res.locals.reqId}] find or create fail: ${error}`)
       // Assuming duplicate key error
-      return [null, false]
+      return null
     }
   })
 
   if (!chatMessage) {
-    console.error('chatMessage not found or created')
     res.status(500).send('server fail')
     return
   }
 
-  // TODO: handle retry
-  const isLoadingTimeout = chatMessage.reply.loadStatus === 2 &&
-    (new Date().getTime() - chatMessage.reply.createdAt.getTime()) > GPT_REQUEST_LOAD_TIMEOUT_MS
+  const validReply = chatMessage.replies.find((reply) => isReplyValid(reply))
+  const newReply = chatMessage.replies.find((reply) => reply.loadStatus === 4)
 
-  let replyContent = ''
-  if (chatMessage.reply.loadStatus === 3 || isCreated || isLoadingTimeout) {
+  if (newReply) {
+    const markReplyPending = (async () => {
+      if (!newReply) {
+        return
+      }
+      newReply.loadStatus = 2
+      try {
+        await getChatReplyRepo().update(newReply.id, newReply)
+      } catch (error) {
+        console.error(`[${res.locals.reqId}] markReplyPending error: ${error}`)
+      }
+    })()
+
     const gptRequestBody = {
       ...GPT_REQUEST_TEMPLATE,
       messages: [
@@ -137,6 +166,8 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
         { role: 'user', content: Content }
       ]
     }
+
+    let replyContent = ''
     try {
       const timerLabel = `[${res.locals.reqId}] start request gpt`
       console.time(timerLabel)
@@ -151,59 +182,93 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
           }
         })
       console.timeEnd(timerLabel)
-      if (gptResp.status !== 200) {
-        console.error(`[${res.locals.reqId}] gpt api fail: ${gptResp.status}, ${JSON.stringify(gptResp.data, null, 4)}`)
-        res.status(500).send('server fail')
-        return
-      }
 
       const gptRespData = gptResp.data
       const { content } = _.get(gptRespData, ['choices', 0, 'message'], {})
       replyContent = content || ''
-      await getChatReplyRepo().update({ id: chatMessage.reply.id }, { reply: content || '', loadStatus: 1, loadedAt: new Date() })
+
+      if (gptResp.status !== 200 || !replyContent) {
+        console.error(`[${res.locals.reqId}] gpt api fail: ${gptResp.status}, ${JSON.stringify(gptResp.data, null, 4)}`)
+        res.status(500).send('server fail')
+        return
+      }
     } catch (error) {
-      console.error(`[${res.locals.reqId}] db query fail: ${error}`)
+      console.error(`[${res.locals.reqId}] gpt request fail: ${error}`)
       res.status(500).send('server fail')
-      await getChatReplyRepo().update({ id: chatMessage.reply.id }, { loadStatus: 3 })
+      await getChatReplyRepo().update({ id: newReply.id }, { loadStatus: 3 })
       return
+    }
+
+    await sendReply(
+      res,
+      {
+        ToUserName,
+        FromUserName,
+        CreateTime,
+        MsgType,
+        Content,
+        MsgId,
+      },
+      replyContent
+    )
+    await markReplyPending.then(
+      async () => markReplyAsReplied(
+        newReply.id, { reply: replyContent, loadStatus: 1, loadedAt: new Date() })
+    )
+  } else if (validReply) {
+      await sendReply(
+        res,
+        {
+          ToUserName,
+          FromUserName,
+          CreateTime,
+          MsgType,
+          Content,
+          MsgId,
+        },
+        validReply.reply!
+      )
+    if (!validReply.replied) {
+      await markReplyAsReplied(validReply.id, { replied: true })
     }
   } else {
     // polls reply
+    let validReply: ChatReply | undefined
     for (let i = 0; i < 5; ++i) {
       await waitMs(1000)
-      const chatReply = await getChatReplyRepo().findOne({ where: { id: chatMessage.reply.id } })
-      if (chatReply?.loadStatus === 1) {
-        replyContent = chatReply.reply || ''
+      const newChatMessage = await getChatMessageRepo().findOne({
+        where: { id: chatMessage.id },
+      })
+      if (!newChatMessage) {
+        continue
+      }
+      validReply = newChatMessage.replies.find((reply) => isReplyValid(reply))
+      if (validReply) {
         break
       }
     }
 
-    if (!replyContent) {
+    if (!validReply) {
       console.error('replyContent not found')
       res.status(500).send('server fail')
       return
     }
-  }
 
-  const replyMessage = {
-    ToUserName: FromUserName,
-    FromUserName: ToUserName,
-    CreateTime: Math.floor(Date.now() / 1000),
-    MsgType,
-    Content: replyContent,
-  }
-  const replyXml = new xml2js.Builder().buildObject({ xml: replyMessage })
+    await sendReply(
+      res,
+      {
+        ToUserName,
+        FromUserName,
+        CreateTime,
+        MsgType,
+        Content,
+        MsgId,
+      },
+      validReply.reply!
+    )
 
-  try {
-    await sendResult(res, 200, replyXml)
-  } catch (error) {
-    // no need to call res.send again, because sendResult already call res.send on success and res.end on error
-    console.error(`sendResult fail: ${error}`)
-  }
-
-  try {
-    await getChatReplyRepo().update({ id: chatMessage.reply.id }, { replied: true })
-  } catch (error) {
-    console.error(`update replied = true fail: ${error}`)
+    if (!validReply.replied) {
+      await markReplyAsReplied(validReply.id, { replied: true })
+    }
   }
 }

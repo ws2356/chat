@@ -1,4 +1,4 @@
-import { Entity, Index, PrimaryGeneratedColumn, OneToOne, JoinColumn, Column } from "typeorm"
+import { Entity, Index, PrimaryGeneratedColumn, OneToOne, OneToMany, JoinColumn, Column } from "typeorm"
 import { ChatReply } from "./chat_reply"
 
 @Entity()
@@ -30,7 +30,6 @@ export class ChatMessage {
   @Column({ name: 'create_time', nullable: false })
   createTime?: Date
 
-  @OneToOne(() => ChatReply, { eager: true, cascade: true })
-  @JoinColumn({ name: 'reply_id' })
-  reply!: ChatReply
+  @OneToMany(() => ChatReply, reply => reply.chatMessage, { eager: true })
+  replies!: ChatReply[]
 }
