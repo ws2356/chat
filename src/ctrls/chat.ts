@@ -5,7 +5,7 @@ import _ from 'lodash'
 import * as xml2js from 'xml2js'
 import { getChatMessageRepo, dataSource, getChatReplyRepo } from '../db'
 import { ChatMessage } from '../entity/chat_message'
-import { waitMs } from './helper/auth_helper'
+import { isGptRequestOngoing, setGptRequestOngoing, waitMs } from './helper/auth_helper'
 import { AUTH_TYPE_MLGB, GPT_API_URL, GPT_REQUEST_TEMPLATE, GPT_SYSTEM_ROLE_INFO, GPT_REQUEST_LOAD_TIMEOUT_MS } from '../constants'
 import { ChatReply } from '../entity/chat_reply'
 
@@ -35,7 +35,7 @@ export async function healthCheck(req: express.Request, res: express.Response) {
   }
 }
 
-async function sendReply(res: express.Response, wechatEvent: WechatEvent, replyContent: string) {
+async function sendReply(res: express.Response, wechatEvent: WechatEvent, replyContent: string): Promise<boolean> {
   const replyMessage = {
     ToUserName: wechatEvent.FromUserName,
     FromUserName: wechatEvent.ToUserName,
@@ -46,8 +46,10 @@ async function sendReply(res: express.Response, wechatEvent: WechatEvent, replyC
   const replyXml = new xml2js.Builder().buildObject({ xml: replyMessage })
   try {
     await sendResult(res, 200, replyXml)
+    return true
   } catch (error) {
     console.error(`[${res.locals.reqId}] sendReply fail: ${error}`)
+    return false
   }
 }
 
@@ -71,6 +73,9 @@ type WechatEvent = {
   Content: string,
   MsgId: string,
 }
+
+type GetOrCreateChatMessageResult =
+  { chatMessage: ChatMessage | null, validReply?: ChatReply, newReply?: ChatReply }
 
 export async function handleWechatEvent(req: express.Request, res: express.Response) {
   res.type('application/xml')
@@ -100,7 +105,8 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
     return
   }
 
-  const chatMessage = await dataSource.transaction(async (manager) => {
+  // no throw
+  const pendingGetOrCreateChatMessage = dataSource.transaction(async (manager) => {
     try {
       const chatMessage = await getChatMessageRepo(manager).findOne({
         where: {
@@ -137,27 +143,35 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
       return null
     }
   })
+  .then((chatMessage: ChatMessage | null): GetOrCreateChatMessageResult => {
+    if (!chatMessage) {
+      return { chatMessage: null }
+    }
 
-  if (!chatMessage) {
-    res.status(500).send('server fail')
-    return
-  }
-
-  const validReply = chatMessage.replies.find((reply) => isReplyValid(reply))
-  const newReply = chatMessage.replies.find((reply) => reply.loadStatus === 4)
-
-  if (newReply) {
-    const markReplyPending = (async () => {
-      if (!newReply) {
-        return
-      }
+    const validReply = chatMessage.replies.find((reply) => isReplyValid(reply))
+    const newReply = chatMessage.replies.find((reply) => reply.loadStatus === 4)
+    return { chatMessage, validReply, newReply }
+  })
+  .then(async ({ chatMessage, validReply, newReply }): Promise<GetOrCreateChatMessageResult> => {
+    if (newReply) {
       newReply.loadStatus = 2
       try {
         await getChatReplyRepo().update(newReply.id, newReply)
       } catch (error) {
         console.error(`[${res.locals.reqId}] markReplyPending error: ${error}`)
       }
-    })()
+    }
+    return { chatMessage, validReply, newReply }
+  })
+
+  // no throw
+  const pendingGptRequest = (async (): Promise<[any, string, boolean]> => {
+    const chatMessageKey = `${AUTH_TYPE_MLGB}-${FromUserName}-${MsgId}-${MsgType}`
+    const isOngoing = await isGptRequestOngoing(chatMessageKey)
+    if (isOngoing) {
+      return [null, '', true]
+    }
+    await setGptRequestOngoing(chatMessageKey, true)
 
     const gptRequestBody = {
       ...GPT_REQUEST_TEMPLATE,
@@ -168,6 +182,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
     }
 
     let replyContent = ''
+
     try {
       const timerLabel = `[${res.locals.reqId}] start request gpt`
       console.time(timerLabel)
@@ -188,18 +203,29 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
       replyContent = content || ''
 
       if (gptResp.status !== 200 || !replyContent) {
-        console.error(`[${res.locals.reqId}] gpt api fail: ${gptResp.status}, ${JSON.stringify(gptResp.data, null, 4)}`)
-        res.status(500).send('server fail')
-        return
+        console.error(`[${res.locals.reqId}] gpt api return invalid data: ${gptResp.status}, ${JSON.stringify(gptResp.data, null, 4)}`)
+        return [null, '', false]
       }
-    } catch (error) {
-      console.error(`[${res.locals.reqId}] gpt request fail: ${error}`)
-      res.status(500).send('server fail')
-      await getChatReplyRepo().update({ id: newReply.id }, { loadStatus: 3 })
-      return
+      return [null, replyContent, false]
+    } catch (error: any) {
+      console.error(`[${res.locals.reqId}] gpt api error: ${error}`)
+      return [error, '', false]
+    } finally {
+      await setGptRequestOngoing(chatMessageKey, false)
     }
+  })();
 
-    await sendReply(
+  const [{ chatMessage, validReply, newReply }, [requestError, replyContent, isReusingRequest]] = await Promise.all([pendingGetOrCreateChatMessage, pendingGptRequest])
+
+  if (!chatMessage) {
+    console.error(`[${res.locals.reqId}] server error: chatMessage not found`)
+    res.status(500).send('server error')
+    return
+  }
+
+  const content = validReply ? validReply.reply! : replyContent
+  if (content) {
+    const replied = await sendReply(
       res,
       {
         ToUserName,
@@ -209,30 +235,29 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
         Content,
         MsgId,
       },
-      replyContent
+      content
     )
-    await markReplyPending.then(
-      async () => markReplyAsReplied(
-        newReply.id, { reply: replyContent, loadStatus: 1, loadedAt: new Date() })
-    )
-  } else if (validReply) {
-      await sendReply(
-        res,
-        {
-          ToUserName,
-          FromUserName,
-          CreateTime,
-          MsgType,
-          Content,
-          MsgId,
-        },
-        validReply.reply!
-      )
-    if (!validReply.replied) {
-      await markReplyAsReplied(validReply.id, { replied: true })
+    if (!isReusingRequest && replyContent && newReply) {
+      newReply.reply = replyContent
+      newReply.loadStatus = 1
+      try {
+        const data: Partial<ChatReply> = {
+          reply: replyContent,
+          loadStatus: 1,
+          loadedAt: new Date(),
+        }
+        if (replied) {
+          data.replied = true
+        }
+        await markReplyAsReplied(newReply.id, data)
+      } catch (error) {
+        console.error(`[${res.locals.reqId}] markReplySuccess error: ${error}`)
+      }
+    } else if (validReply && replied) {
+      await markReplyAsReplied(validReply.id, { replied })
     }
-  } else {
-    // polls reply
+  } else if (isReusingRequest) {
+    // polls
     let validReply: ChatReply | undefined
     for (let i = 0; i < 5; ++i) {
       await waitMs(1000)
@@ -249,26 +274,32 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
     }
 
     if (!validReply) {
-      console.error('replyContent not found')
-      res.status(500).send('server fail')
-      return
+      console.error(`failed to poll reply: ${res.locals.reqId}`)
+      res.status(500).send(`failed to poll reply: ${res.locals.reqId}`)
+    } else {
+      const replied = await sendReply(
+        res,
+        {
+          ToUserName,
+          FromUserName,
+          CreateTime,
+          MsgType,
+          Content,
+          MsgId,
+        },
+        validReply.reply!
+      )
+      if (replied) {
+        await markReplyAsReplied(validReply.id, { replied: true })
+      }
     }
+  } else {
+    console.error(`[${res.locals.reqId}] first run gpt request failed`)
+    res.status(500).send(`server fail: ${res.locals.reqId}`)
+  }
 
-    await sendReply(
-      res,
-      {
-        ToUserName,
-        FromUserName,
-        CreateTime,
-        MsgType,
-        Content,
-        MsgId,
-      },
-      validReply.reply!
-    )
-
-    if (!validReply.replied) {
-      await markReplyAsReplied(validReply.id, { replied: true })
-    }
+  if (newReply && !isReusingRequest && requestError) {
+    newReply.loadStatus = 3
+    await getChatReplyRepo().update({ id: newReply.id }, { loadStatus: 3 })
   }
 }
