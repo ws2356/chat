@@ -3,13 +3,14 @@ import * as path from 'path'
 import { Repository, DataSource, EntityManager } from 'typeorm'
 import { ChatMessage } from './entity/chat_message'
 import { ChatReply } from './entity/chat_reply'
+import { ChatSubscription } from './entity/chat_subscription'
 
 const ormconfigPath = path.resolve(__dirname, '../ormconfig.json')
 const dbConfig = JSON.parse(fs.readFileSync(ormconfigPath).toString())
 
 export const dataSource = new DataSource({
   ...dbConfig,
-    entities: [ChatMessage, ChatReply],
+    entities: [ChatMessage, ChatReply, ChatSubscription],
     loggerLevel: 'warn',
 })
 
@@ -27,4 +28,8 @@ export function getChatMessageRepo(entityManager?: EntityManager): Repository<Ch
 
 export function getChatReplyRepo(entityManager?: EntityManager): Repository<ChatReply> {
   return (entityManager || getManager()).getRepository(ChatReply)
+}
+
+export function getChatSubscriptionRepo(entityManager?: EntityManager): Repository<ChatSubscription> {
+  return (entityManager || getManager()).getRepository(ChatSubscription)
 }

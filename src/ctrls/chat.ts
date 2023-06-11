@@ -5,11 +5,37 @@ import _ from 'lodash'
 import * as xml2js from 'xml2js'
 import { getChatMessageRepo, dataSource, getChatReplyRepo } from '../db'
 import { ChatMessage } from '../entity/chat_message'
-import { isGptRequestOngoing, setGptRequestOngoing, waitMs } from './helper/auth_helper'
-import { AUTH_TYPE_MLGB, GPT_API_URL, GPT_REQUEST_TEMPLATE, GPT_SYSTEM_ROLE_INFO, GPT_REQUEST_LOAD_TIMEOUT_MS } from '../constants'
+import { isGptRequestOngoing, setGptRequestOngoing, waitMs, isCarMove } from './helper/auth_helper'
+import { AUTH_TYPE_MLGB, GPT_API_URL, GPT_REQUEST_TEMPLATE, GPT_SYSTEM_ROLE_INFO } from '../constants'
 import { ChatReply } from '../entity/chat_reply'
-import { send } from 'process'
 
+
+type SupportedMsgType = 'text' | 'voice' | 'event'
+
+interface WechatBaseEvent {
+  ToUserName: string,
+  FromUserName: string,
+  CreateTime: string,
+  MsgType:SupportedMsgType,
+}
+
+interface WechatMessageEvent {
+  ToUserName: string,
+  FromUserName: string,
+  CreateTime: string,
+  MsgType: SupportedMsgType,
+  Content: string,
+  MsgId: string,
+  Recognition?: string,
+}
+
+interface WechatSubscriptionEvent {
+  ToUserName: string,
+  FromUserName: string,
+  CreateTime: string,
+  MsgType: 'event',
+  Event: string, // 'subscribe' | 'unsubscribe',
+}
 
 async function sendResult(res: express.Response, status: number, result: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -36,7 +62,7 @@ export async function healthCheck(req: express.Request, res: express.Response) {
   }
 }
 
-async function sendReply(res: express.Response, wechatEvent: WechatEvent, replyContent: string): Promise<boolean> {
+async function sendReply(res: express.Response, wechatEvent: WechatBaseEvent, replyContent: string): Promise<boolean> {
   const replyMessage = {
     ToUserName: wechatEvent.FromUserName,
     FromUserName: wechatEvent.ToUserName,
@@ -66,17 +92,41 @@ async function markReplyAsReplied(id: number, reply: Partial<ChatReply>) {
   }
 }
 
-type WechatEvent = {
-  ToUserName: string,
-  FromUserName: string,
-  CreateTime: string,
-  MsgType: string,
-  Content: string,
-  MsgId: string,
-}
-
 type GetOrCreateChatMessageResult =
   { chatMessage: ChatMessage | null, validReply?: ChatReply, newReply?: ChatReply }
+
+export async function handleWechatSubscription(req: express.Request, res: express.Response, subscribeEvent: WechatSubscriptionEvent) {
+  const { ToUserName, FromUserName, CreateTime, MsgType, Event } = subscribeEvent
+  if (MsgType !== 'event' ||
+    typeof ToUserName !== 'string' ||
+    typeof FromUserName !== 'string' ||
+    typeof CreateTime !== 'string' ||
+    (Event !== 'subscribe' && Event !== 'unsubscribe')) {
+    console.error(`bad arg: ${JSON.stringify(subscribeEvent, null, 4)}`)
+    res.status(400).send('bad arg')
+    return
+  }
+  
+  if (Event === 'subscribe') {
+    const welcomeMessage = '欢迎关注！如果需要联系挪车，直接回复消息：“挪车”。'
+    await sendReply(res, subscribeEvent, welcomeMessage)
+  } else {
+    const welcomeMessage = '你知道吗，本公众号是一个高级人工智能机器人，你可以直接和它聊天（不要提到挪车。。），它会自动回复你的。'
+    await sendReply(res, subscribeEvent, welcomeMessage)
+  }
+
+  try {
+    await getChatMessageRepo().save({
+      authId: FromUserName,
+      authType: AUTH_TYPE_MLGB,
+      toUserName: ToUserName,
+      createTime: new Date(parseInt(CreateTime) * 1000),
+      event: Event,
+    })
+  } catch (error) {
+    console.error(`save subscribe event error: ${error}`)
+  }
+}
 
 export async function handleWechatEvent(req: express.Request, res: express.Response) {
   res.type('application/xml')
@@ -91,10 +141,19 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
     msgid: MsgId,
     mediaid: MediaId,
     format: Format,
+    event: Event,
     recognition: Recognition } = _.mapValues(data.xml, (v: any) => v && v[0])
 
+  if (MsgType === 'event') {
+    await handleWechatSubscription(
+      req,
+      res,
+      { ToUserName, FromUserName, CreateTime, MsgType: 'event', Event })
+    return
+  }
+
   if (typeof MsgId !== 'string' ||
-    typeof MsgType !== 'string' ||
+    (MsgType !== 'text' && MsgType !== 'voice') ||
     (Format === 'text' && typeof TextContent !== 'string') ||
     typeof ToUserName !== 'string' ||
     typeof FromUserName !== 'string' ||
@@ -108,7 +167,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
   }
 
   if (['text', 'voice'].indexOf(MsgType) === -1) {
-    await sendReply(res, { ToUserName, FromUserName, CreateTime, MsgType, Content: '', MsgId }, '暂不支持此消息类型')
+    await sendReply(res, { ToUserName, FromUserName, CreateTime, MsgType }, '暂不支持此消息类型')
     return
   }
 
@@ -181,7 +240,12 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
   })
 
   // no throw
-  const pendingGptRequest = (async (): Promise<[any, string, boolean]> => {
+  const pendingDetermineReplyContent = (async (): Promise<[any, string, boolean]> => {
+    if (isCarMove(Content)) {
+      const carMoveReply = `已经收到您的消息。即将为您挪车。紧急情况请联系：${process.env.MY_PHONE_NUMBER}。`
+      return [null, carMoveReply, false]
+    }
+
     const chatMessageKey = `${AUTH_TYPE_MLGB}-${FromUserName}-${MsgId}-${MsgType}`
     const isOngoing = await isGptRequestOngoing(chatMessageKey)
     if (isOngoing) {
@@ -231,7 +295,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
     }
   })();
 
-  const [{ chatMessage, validReply, newReply }, [requestError, replyContent, isReusingRequest]] = await Promise.all([pendingGetOrCreateChatMessage, pendingGptRequest])
+  const [{ chatMessage, validReply, newReply }, [requestError, replyContent, isReusingRequest]] = await Promise.all([pendingGetOrCreateChatMessage, pendingDetermineReplyContent])
 
   if (!chatMessage) {
     console.error(`[${res.locals.reqId}] server error: chatMessage not found`)
@@ -248,8 +312,6 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
         FromUserName,
         CreateTime,
         MsgType,
-        Content: '',
-        MsgId,
       },
       content
     )
@@ -300,8 +362,6 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
           FromUserName,
           CreateTime,
           MsgType,
-          Content: '',
-          MsgId,
         },
         validReply.reply!
       )

@@ -12,3 +12,12 @@ export async function isGptRequestOngoing(chatMessageKey: string) {
 export async function setGptRequestOngoing(chatMessageKey: string, ongoing: boolean) {
   ongoingRequestMap.set(chatMessageKey, ongoing)
 }
+
+export function isCarMove(text: string) {
+  return text.includes('挪车') ||
+    text.includes('拖车') ||
+    text.includes('挪一下') ||
+    text.includes('动一下') ||
+    text.includes('你的车') ||
+    text.includes('你车')
+}
