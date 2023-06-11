@@ -3,7 +3,7 @@ import { Readable } from 'stream'
 import axios from 'axios'
 import _ from 'lodash'
 import * as xml2js from 'xml2js'
-import { getChatMessageRepo, dataSource, getChatReplyRepo } from '../db'
+import { getChatMessageRepo, dataSource, getChatReplyRepo, getChatSubscriptionRepo } from '../db'
 import { ChatMessage } from '../entity/chat_message'
 import { isGptRequestOngoing, setGptRequestOngoing, waitMs, isCarMove } from './helper/auth_helper'
 import { AUTH_TYPE_MLGB, GPT_API_URL, GPT_REQUEST_TEMPLATE, GPT_SYSTEM_ROLE_INFO } from '../constants'
@@ -116,7 +116,7 @@ export async function handleWechatSubscription(req: express.Request, res: expres
   }
 
   try {
-    await getChatMessageRepo().save({
+    await getChatSubscriptionRepo().save({
       authId: FromUserName,
       authType: AUTH_TYPE_MLGB,
       toUserName: ToUserName,
@@ -242,7 +242,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
   // no throw
   const pendingDetermineReplyContent = (async (): Promise<[any, string, boolean]> => {
     if (isCarMove(Content)) {
-      const carMoveReply = `已经收到您的消息。即将为您挪车。紧急情况请联系：${process.env.MY_PHONE_NUMBER}。`
+      const carMoveReply = `经收到您的消息。即将为您挪车。紧急情况请联系：${process.env.MY_PHONE_NUMBER}。`
       return [null, carMoveReply, false]
     }
 
