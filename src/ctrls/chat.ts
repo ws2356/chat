@@ -8,6 +8,7 @@ import { ChatMessage } from '../entity/chat_message'
 import { isGptRequestOngoing, setGptRequestOngoing, waitMs } from './helper/auth_helper'
 import { AUTH_TYPE_MLGB, GPT_API_URL, GPT_REQUEST_TEMPLATE, GPT_SYSTEM_ROLE_INFO, GPT_REQUEST_LOAD_TIMEOUT_MS } from '../constants'
 import { ChatReply } from '../entity/chat_reply'
+import { send } from 'process'
 
 
 async function sendResult(res: express.Response, status: number, result: string): Promise<void> {
@@ -40,7 +41,7 @@ async function sendReply(res: express.Response, wechatEvent: WechatEvent, replyC
     ToUserName: wechatEvent.FromUserName,
     FromUserName: wechatEvent.ToUserName,
     CreateTime: Math.floor(Date.now() / 1000),
-    MsgType: wechatEvent.MsgType,
+    MsgType: 'text', // wechatEvent.MsgType, currently only support replying with text
     Content: replyContent,
   }
   const replyXml = new xml2js.Builder().buildObject({ xml: replyMessage })
@@ -86,19 +87,32 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
     fromusername: FromUserName,
     createtime: CreateTime,
     msgtype: MsgType,
-    content: Content,
-    msgid: MsgId } = _.mapValues(data.xml, (v: any) => v && v[0])
+    content: TextContent,
+    msgid: MsgId,
+    mediaid: MediaId,
+    format: Format,
+    recognition: Recognition } = _.mapValues(data.xml, (v: any) => v && v[0])
 
   if (typeof MsgId !== 'string' ||
     typeof MsgType !== 'string' ||
-    typeof Content !== 'string' ||
+    (Format === 'text' && typeof TextContent !== 'string') ||
     typeof ToUserName !== 'string' ||
     typeof FromUserName !== 'string' ||
-    typeof CreateTime !== 'string') {
+    typeof CreateTime !== 'string' ||
+    (Format === 'voice' && typeof MediaId !== 'string') ||
+    (Format === 'voice' && typeof Format !== 'string') ||
+    (Format === 'voice' && !Recognition)) {
     console.error(`bad arg: ${JSON.stringify(data, null, 4)}`)
     res.status(400).send('bad arg')
     return
   }
+
+  if (['text', 'voice'].indexOf(MsgType) === -1) {
+    await sendReply(res, { ToUserName, FromUserName, CreateTime, MsgType, Content: '', MsgId }, '暂不支持此消息类型')
+    return
+  }
+
+  const Content = MsgType === 'voice' ? Recognition : TextContent
 
   if (!Content) {
     res.status(200).send('success')
@@ -129,6 +143,8 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
         content: Content,
         toUserName: ToUserName,
         createTime: new Date(parseInt(CreateTime) * 1000),
+        mediaId: MediaId || null,
+        format: Format || null,
       })
       const reply = await getChatReplyRepo(manager).save({
         loadStatus: 4,
@@ -232,7 +248,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
         FromUserName,
         CreateTime,
         MsgType,
-        Content,
+        Content: '',
         MsgId,
       },
       content
@@ -284,7 +300,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
           FromUserName,
           CreateTime,
           MsgType,
-          Content,
+          Content: '',
           MsgId,
         },
         validReply.reply!

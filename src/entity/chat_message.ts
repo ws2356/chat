@@ -32,4 +32,10 @@ export class ChatMessage {
 
   @OneToMany(() => ChatReply, reply => reply.chatMessage, { eager: true })
   replies!: ChatReply[]
+
+  @Column({ name: 'media_id', length: 128, nullable: true })
+  mediaId!: string
+
+  @Column({ name: 'format', length: 16, nullable: true })
+  format!: string
 }
