@@ -5,7 +5,7 @@ import _ from 'lodash'
 import * as xml2js from 'xml2js'
 import { getChatMessageRepo, dataSource, getChatReplyRepo, getChatSubscriptionRepo } from '../db'
 import { ChatMessage } from '../entity/chat_message'
-import { isGptRequestOngoing, setGptRequestOngoing, waitMs, isCarMove } from './helper/auth_helper'
+import { isGptRequestOngoing, setGptRequestOngoing, waitMs, isCarMove, verifyWechatSignature } from './helper/auth_helper'
 import { AUTH_TYPE_MLGB, GPT_API_URL, GPT_REQUEST_TEMPLATE, GPT_SYSTEM_ROLE_INFO } from '../constants'
 import { ChatReply } from '../entity/chat_reply'
 
@@ -129,6 +129,12 @@ export async function handleWechatSubscription(req: express.Request, res: expres
 }
 
 export async function handleWechatEvent(req: express.Request, res: express.Response) {
+  if (!verifyWechatSignature(req, res)) {
+    console.error(`[${res.locals.reqId}] bad sig: ${JSON.stringify(req.query, null, 4)}`)
+    res.status(400).send('bad signature')
+    return
+  }
+
   res.type('application/xml')
 
   const data: any = req.body || {}
@@ -174,7 +180,8 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
   const Content = MsgType === 'voice' ? Recognition : TextContent
 
   if (!Content) {
-    res.status(200).send('success')
+    console.error(`empty content: ${JSON.stringify(data, null, 4)}`)
+    res.status(400).send('empty content')
     return
   }
 
@@ -242,7 +249,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
   // no throw
   const pendingDetermineReplyContent = (async (): Promise<[any, string, boolean]> => {
     if (isCarMove(Content)) {
-      const carMoveReply = `经收到您的消息。即将为您挪车。紧急情况请联系：${process.env.MY_PHONE_NUMBER}。`
+      const carMoveReply = `车主已经收到您的消息。即将为您挪车。紧急情况请拨打：${process.env.MY_PHONE_NUMBER}。`
       return [null, carMoveReply, false]
     }
 
