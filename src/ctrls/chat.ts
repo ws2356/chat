@@ -5,7 +5,7 @@ import _ from 'lodash'
 import * as xml2js from 'xml2js'
 import { getChatMessageRepo, dataSource, getChatReplyRepo, getChatSubscriptionRepo } from '../db'
 import { ChatMessage } from '../entity/chat_message'
-import { isGptRequestOngoing, setGptRequestOngoing, waitMs, isCarMove, verifyWechatSignature } from './helper/auth_helper'
+import { getGptRequestCache, setGptRequestCache, waitMs, isCarMove, verifyWechatSignature } from './helper/auth_helper'
 import { AUTH_TYPE_MLGB, GPT_API_URL, GPT_REQUEST_TEMPLATE, GPT_SYSTEM_ROLE_INFO } from '../constants'
 import { ChatReply } from '../entity/chat_reply'
 
@@ -254,11 +254,15 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
     }
 
     const chatMessageKey = `${AUTH_TYPE_MLGB}-${FromUserName}-${MsgId}-${MsgType}`
-    const isOngoing = await isGptRequestOngoing(chatMessageKey)
-    if (isOngoing) {
-      return [null, '', true]
+    const cachedRequest = await getGptRequestCache(chatMessageKey)
+    if (cachedRequest) {
+      if (cachedRequest.completed) {
+        return [null, cachedRequest.result, false]
+      } else {
+        return [null, '', true]
+      }
     }
-    await setGptRequestOngoing(chatMessageKey, true)
+    await setGptRequestCache(chatMessageKey, { completed: false, result: '' })
 
     const gptRequestBody = {
       ...GPT_REQUEST_TEMPLATE,
@@ -298,7 +302,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
       console.error(`[${res.locals.reqId}] gpt api error: ${error}`)
       return [error, '', false]
     } finally {
-      await setGptRequestOngoing(chatMessageKey, false)
+      await setGptRequestCache(chatMessageKey, { completed: true, result: replyContent })
     }
   })();
 

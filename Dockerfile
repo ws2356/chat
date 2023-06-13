@@ -29,5 +29,7 @@ COPY --from=build --chown=node:node /app/dist/ ./dist/
 
 EXPOSE 8030
 
+ENV NODE_ENV=production
+
 WORKDIR /app/dist/
 CMD ["/usr/local/bin/node", "src/index.js"]

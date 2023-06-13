@@ -16,6 +16,8 @@ import { initDb } from './db'
 
 const readFileAsync = util.promisify(fs.readFile);
 
+console.error('process.env.NODE_ENV: ', process.env.NODE_ENV);
+
 (async function main() {
 
   try {

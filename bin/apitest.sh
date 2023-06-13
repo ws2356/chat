@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -eu
 
-declare -r url=http://localhost:8030
+declare -r url=http://localhost:8030?foo=bar
 
 
 create_time=$(date '+%s')
-MsgId=$create_time
+MsgId=1686666227
 echo "msgid: $MsgId"
 
 xml_data=$(cat <<EOF
@@ -14,7 +14,7 @@ xml_data=$(cat <<EOF
   <FromUserName><![CDATA[TestUser_openid]]></FromUserName>
   <CreateTime>$create_time</CreateTime>
   <MsgType><![CDATA[text]]></MsgType>
-  <Content><![CDATA[挪车]]></Content>
+  <Content><![CDATA[如何提高记忆力]]></Content>
   <MsgId>$MsgId</MsgId>
 </xml>
 EOF
