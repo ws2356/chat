@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -eu
 
-declare -r url=http://localhost:8030?foo=bar
+declare -r url=http://localhost:8030
 
 
 create_time=$(date '+%s')

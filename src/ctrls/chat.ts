@@ -269,22 +269,21 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
   })
 
   // no throw
-  const pendingDetermineReplyContent = (async (): Promise<[any, string, boolean]> => {
+  const pendingDetermineReplyContent = (async (): Promise<[any, { result: string, completed: boolean, tries: number }]> => {
     if (isCarMove(Content)) {
       const carMoveReply = `车主已经收到您的消息。即将为您挪车。紧急情况请拨打：${process.env.MY_PHONE_NUMBER}。`
-      return [null, carMoveReply, false]
+      return [null, { result: carMoveReply, completed: true, tries: 0 }]
     }
 
     const chatMessageKey = `${AUTH_TYPE_MLGB}-${FromUserName}-${MsgId}-${MsgType}`
     const cachedRequest = await getGptRequestCache(chatMessageKey)
     if (cachedRequest) {
-      if (cachedRequest.completed) {
-        return [null, cachedRequest.result, false]
-      } else {
-        return [null, '', true]
-      }
+      cachedRequest.tries += 1
+      await setGptRequestCache(chatMessageKey, { ...cachedRequest })
+      return [null, cachedRequest]
+    } else {
+      await setGptRequestCache(chatMessageKey, { completed: false, result: '', tries: 1 })
     }
-    await setGptRequestCache(chatMessageKey, { completed: false, result: '' })
 
     const gptRequestBody = {
       ...GPT_REQUEST_TEMPLATE,
@@ -317,18 +316,18 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
 
       if (gptResp.status !== 200 || !replyContent) {
         console.error(`[${res.locals.reqId}] gpt api return invalid data: ${gptResp.status}, ${JSON.stringify(gptResp.data, null, 4)}`)
-        return [null, '', false]
+        return [null, { result: '', completed: true, tries: 1 }]
       }
-      return [null, replyContent, false]
+      return [null, { result: replyContent, completed: true, tries: 1 }]
     } catch (error: any) {
       console.error(`[${res.locals.reqId}] gpt api error: ${error}`)
-      return [error, '', false]
+      return [error, { result: '', completed: true, tries: 1}]
     } finally {
-      await setGptRequestCache(chatMessageKey, { completed: true, result: replyContent })
+      await setGptRequestCache(chatMessageKey, { completed: true, result: replyContent, tries: 1 })
     }
   })();
 
-  const [{ chatMessage, validReply, newReply }, [requestError, replyContent, isReusingRequest]] = await Promise.all([pendingGetOrCreateChatMessage, pendingDetermineReplyContent])
+  const [{ chatMessage, validReply, newReply }, [requestError, { result: replyContent, completed, tries }]] = await Promise.all([pendingGetOrCreateChatMessage, pendingDetermineReplyContent])
 
   if (!chatMessage) {
     console.error(`[${res.locals.reqId}] server error: chatMessage not found`)
@@ -348,7 +347,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
       },
       content
     )
-    if (!isReusingRequest && replyContent && newReply) {
+    if (tries === 1 && replyContent && newReply) {
       newReply.reply = replyContent
       newReply.loadStatus = 1
       try {
@@ -367,10 +366,11 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
     } else if (validReply && replied) {
       await markReplyAsReplied(validReply.id, { replied })
     }
-  } else if (isReusingRequest) {
+  } else if (!completed) {
     // polls
     let validReply: ChatReply | undefined
-    for (let i = 0; i < 5; ++i) {
+    const pollTime = tries === 3 ? 2 : 5
+    for (let i = 0; i < pollTime; ++i) {
       await waitMs(1000)
       const newChatMessage = await getChatMessageRepo().findOne({
         where: { id: chatMessage.id },
@@ -386,7 +386,21 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
 
     if (!validReply) {
       console.error(`failed to poll reply: ${res.locals.reqId}`)
-      res.status(500).send(`failed to poll reply: ${res.locals.reqId}`)
+      // res.status(500).send(`failed to poll reply: ${res.locals.reqId}`)
+      // second try: no reply
+      // third try: reply a web page for client to poll further
+      if (tries === 3) {
+        await sendReply(
+          res,
+          {
+            ToUserName,
+            FromUserName,
+            CreateTime,
+            MsgType,
+          },
+          `点击<a href="${req.protocol}://${req.host}/message/${chatMessage.id}">链接</a>查看回复`
+        )
+      }
     } else {
       const replied = await sendReply(
         res,
@@ -407,7 +421,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
     res.status(500).send(`server fail: ${res.locals.reqId}`)
   }
 
-  if (newReply && !isReusingRequest && requestError) {
+  if (newReply && tries === 1 && requestError) {
     newReply.loadStatus = 3
     await getChatReplyRepo().update({ id: newReply.id }, { loadStatus: 3 })
   }

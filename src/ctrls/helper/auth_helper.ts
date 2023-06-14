@@ -21,6 +21,7 @@ const pendingRedisConnect = redisClient.connect()
 type GptRequestCache = {
   completed: boolean
   result: string
+  tries: number
 }
 
 export async function getGptRequestCache(chatMessageKey: string): Promise<GptRequestCache | null> {
@@ -54,7 +55,8 @@ export function isCarMove(text: string) {
 }
 
 export function verifyWechatSignature(req: express.Request, res: express.Response): boolean {
-  if (process.env.NODE_ENV === 'development') {
+  if (process.env.NODE_ENV === 'development' ||
+    process.env.LOCAL_DEBUG === 'true') {
     return true
   }
   const { signature, timestamp, nonce } = req.query || {}
