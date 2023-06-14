@@ -5,7 +5,7 @@ declare -r url=http://localhost:8030?foo=bar
 
 
 create_time=$(date '+%s')
-MsgId=1686666227
+MsgId=$create_time
 echo "msgid: $MsgId"
 
 xml_data=$(cat <<EOF
@@ -14,7 +14,7 @@ xml_data=$(cat <<EOF
   <FromUserName><![CDATA[TestUser_openid]]></FromUserName>
   <CreateTime>$create_time</CreateTime>
   <MsgType><![CDATA[text]]></MsgType>
-  <Content><![CDATA[如何提高记忆力]]></Content>
+  <Content><![CDATA[https://www.wansong.vip/]]></Content>
   <MsgId>$MsgId</MsgId>
 </xml>
 EOF

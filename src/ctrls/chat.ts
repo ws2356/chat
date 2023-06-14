@@ -10,7 +10,7 @@ import { AUTH_TYPE_MLGB, GPT_API_URL, GPT_REQUEST_TEMPLATE, GPT_SYSTEM_ROLE_INFO
 import { ChatReply } from '../entity/chat_reply'
 
 
-type SupportedMsgType = 'text' | 'voice' | 'event'
+type SupportedMsgType = 'text' | 'voice' | 'event' | 'link'
 
 interface WechatBaseEvent {
   ToUserName: string,
@@ -69,6 +69,26 @@ async function sendReply(res: express.Response, wechatEvent: WechatBaseEvent, re
     CreateTime: Math.floor(Date.now() / 1000),
     MsgType: 'text', // wechatEvent.MsgType, currently only support replying with text
     Content: replyContent,
+  }
+  const replyXml = new xml2js.Builder().buildObject({ xml: replyMessage })
+  try {
+    await sendResult(res, 200, replyXml)
+    return true
+  } catch (error) {
+    console.error(`[${res.locals.reqId}] sendReply fail: ${error}`)
+    return false
+  }
+}
+
+async function sendTestLinkReply(res: express.Response, wechatEvent: WechatBaseEvent, replyContent: string): Promise<boolean> {
+  const replyMessage = {
+    ToUserName: wechatEvent.FromUserName,
+    FromUserName: wechatEvent.ToUserName,
+    CreateTime: Math.floor(Date.now() / 1000),
+    MsgType: wechatEvent.MsgType, // currently only support replying with text
+    Title: 'test link',
+    Description: 'test link',
+    Url: replyContent,
   }
   const replyXml = new xml2js.Builder().buildObject({ xml: replyMessage })
   try {
@@ -148,7 +168,8 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
     mediaid: MediaId,
     format: Format,
     event: Event,
-    recognition: Recognition } = _.mapValues(data.xml, (v: any) => v && v[0])
+    recognition: Recognition,
+    url: Url } = _.mapValues(data.xml, (v: any) => v && v[0])
 
   if (MsgType === 'event') {
     await handleWechatSubscription(
@@ -159,7 +180,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
   }
 
   if (typeof MsgId !== 'string' ||
-    (MsgType !== 'text' && MsgType !== 'voice') ||
+    (MsgType !== 'text' && MsgType !== 'voice' && MsgType !== 'link') ||
     (Format === 'text' && typeof TextContent !== 'string') ||
     typeof ToUserName !== 'string' ||
     typeof FromUserName !== 'string' ||
@@ -172,12 +193,17 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
     return
   }
 
-  if (['text', 'voice'].indexOf(MsgType) === -1) {
+  if (['text', 'voice', 'link'].indexOf(MsgType) === -1) {
     await sendReply(res, { ToUserName, FromUserName, CreateTime, MsgType }, '暂不支持此消息类型')
     return
   }
 
-  const Content = MsgType === 'voice' ? Recognition : TextContent
+  const Content = MsgType === 'voice' ? Recognition : ( MsgType === 'text' ? TextContent : Url)
+
+  if (Content.startsWith('https://')) {
+    await sendTestLinkReply(res, { ToUserName, FromUserName, CreateTime, MsgType: 'link' }, Content)
+    return
+  }
 
   if (!Content) {
     console.error(`empty content: ${JSON.stringify(data, null, 4)}`)
