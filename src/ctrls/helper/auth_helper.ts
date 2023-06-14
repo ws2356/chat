@@ -1,6 +1,9 @@
 import express from 'express'
+import _ from 'lodash'
 import crypto from 'crypto'
 import { createClient } from 'redis'
+import { getChatMessageRepo } from '../../db'
+import { ChatReply } from '../../entity/chat_reply'
 
 export async function waitMs(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -72,4 +75,26 @@ export function verifyWechatSignature(req: express.Request, res: express.Respons
     console.error(`[${res.locals.reqId}] invalid signature: ${signatureToVerify} !== ${signature}`)
   }
   return ret
+}
+
+export function isReplyValid(reply: ChatReply): boolean {
+  return reply.loadStatus === 1 && !_.isEmpty(reply.reply)
+}
+
+export async function getMessageById(id: number): Promise<{ message: string, replies: string[] } | null> {
+  const chatMessage = await getChatMessageRepo().findOne({ where: { id } })
+  if (!chatMessage) {
+    return null
+  }
+  chatMessage.replies.sort((a, b) => {
+    const aLoaded = a.loadedAt ? a.loadedAt.getTime() : 0
+    const bLoaded = b.loadedAt ? b.loadedAt.getTime() : 0
+    return aLoaded - bLoaded
+  })
+  const validReplies = chatMessage.replies.filter((reply) => isReplyValid(reply))
+  const data = {
+    message: chatMessage.content,
+    replies: validReplies.map((reply) => reply.reply),
+  }
+  return data as any
 }

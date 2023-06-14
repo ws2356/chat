@@ -14,6 +14,8 @@ COPY --chown=node:node src/ ./src/
 
 RUN NODE_ENV=production npm run build
 
+COPY --chown=node:node src/templates/ ./dist/src/templates/
+
 
 # npm install with --omit=dev & copy from build
 FROM node:17-alpine

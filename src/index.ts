@@ -13,6 +13,8 @@ import * as qs from 'qs'
 import xmlParser from 'express-xml-bodyparser'
 import router from './router'
 import { initDb } from './db'
+import { getMessageById } from './ctrls/helper/auth_helper'
+import { triggerAsyncId } from "async_hooks"
 
 const readFileAsync = util.promisify(fs.readFile);
 
@@ -37,22 +39,33 @@ console.error('process.env.NODE_ENV: ', process.env.NODE_ENV);
     origin: /(\/\/|\.)wansong\.vip(\/|$)|^http:\/\/localhost:803[0-9]/,
   }))
 
-  app.get('/echo', async (req, res) => {
-    type Item = { name: string, value: any }
+  app.get('/message/:id', async (req, res) => {
+    const { id } = req.params as { id: string }
+    const idNum = parseInt(id, 10)
+    if (isNaN(idNum)) {
+      res.status(400).send('invalid id')
+      return
+    }
 
-    const { headers, cookies } = req
+    let data: { message: string, replies: string[] } | null = null
+    try {
+      data = await getMessageById(idNum)
+      if (!data) {
+        res.status(404).send('not found')
+        return
+      }
+      if (!data.replies || data.replies.length === 0) {
+        res.status(200).send('refresh to get replies')
+        return
+      }
+    } catch (error) {
+      console.error(`server failed: ${error}`)
+      res.status(500).send(`server failed`)
+      return
+    }
 
-    const cookieList: Item[] = !cookies
-      ? []
-      : Object.keys(cookies).map(name => ({ name, value: cookies[name] }))
-    const headerList: Item[] = !headers
-      ? []
-      : Object.keys(headers)
-      .filter(name => name.toLowerCase() !== 'cookie')
-      .map(name => ({ name, value: headers[name] }))
-
-    ejs.renderFile('templates/page.ejs',
-      { title: 'echo', cookies: cookieList, headers: headerList },
+    ejs.renderFile('src/templates/page.ejs',
+      { message: data.message, reply: data.replies[0] },
       (err, result) => {
         if (err) {
           res.status(500).send(`ejs render failed: ${err}`)

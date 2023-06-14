@@ -5,7 +5,7 @@ import _ from 'lodash'
 import * as xml2js from 'xml2js'
 import { getChatMessageRepo, dataSource, getChatReplyRepo, getChatSubscriptionRepo } from '../db'
 import { ChatMessage } from '../entity/chat_message'
-import { getGptRequestCache, setGptRequestCache, waitMs, isCarMove, verifyWechatSignature } from './helper/auth_helper'
+import { getGptRequestCache, setGptRequestCache, waitMs, isCarMove, verifyWechatSignature, isReplyValid } from './helper/auth_helper'
 import { AUTH_TYPE_MLGB, GPT_API_URL, GPT_REQUEST_TEMPLATE, GPT_SYSTEM_ROLE_INFO } from '../constants'
 import { ChatReply } from '../entity/chat_reply'
 
@@ -98,10 +98,6 @@ async function sendTestLinkReply(res: express.Response, wechatEvent: WechatBaseE
     console.error(`[${res.locals.reqId}] sendReply fail: ${error}`)
     return false
   }
-}
-
-function isReplyValid(reply: ChatReply): boolean {
-  return reply.loadStatus === 1 && !_.isEmpty(reply.reply)
 }
 
 async function markReplyAsReplied(id: number, reply: Partial<ChatReply>) {
