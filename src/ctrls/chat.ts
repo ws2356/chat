@@ -416,3 +416,30 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
     await getChatReplyRepo().update({ id: newReply.id }, { loadStatus: 3 })
   }
 }
+
+
+export async function getMessageById(req: express.Request, res: express.Response) {
+  const { id } = req.params as { id: string }
+  const idNum = parseInt(id, 10)
+  if (isNaN(idNum)) {
+    res.status(400).send('invalid id')
+    return
+  }
+  const chatMessage = await getChatMessageRepo().findOne({ where: { id: idNum } })
+  if (!chatMessage) {
+    res.status(404).send('not found')
+    return
+  }
+  res.type('application/json')
+  chatMessage.replies.sort((a, b) => {
+    const aLoaded = a.loadedAt ? a.loadedAt.getTime() : 0
+    const bLoaded = b.loadedAt ? b.loadedAt.getTime() : 0
+    return aLoaded - bLoaded
+  })
+  const validReplies = chatMessage.replies.filter((reply) => isReplyValid(reply))
+  const data = {
+    message: chatMessage.content,
+    replies: validReplies.map((reply) => reply.reply),
+  }
+  res.send(JSON.stringify(data))
+}
