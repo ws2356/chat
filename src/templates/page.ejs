@@ -5,16 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>面了个壁</title>
     <style type="text/css" media="screen">
-      p { padding-inline: 1em; }
-      p.msg { font-size: 1.5em; color:black; }
-      p.reply { font-size: 1.2em; color: #999; }
+      body>* { padding-inline: 8px; }
+      .reply { font-size: 1.2em; color: #999; }
     </style>
   </head>
 
   <body>
-    <p class="msg"><%= message %></p>
-    <p class="reply">
-      <pre><%= reply %></pre>
-    </p>
+    <h1><%= message %></h1>
+    <pre class="reply">
+      <%= reply %>
+    </pre>
   </body>
 </html>
