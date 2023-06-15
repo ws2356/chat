@@ -331,7 +331,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
         const replyContent = await getReply()
         const data ={ completed: true, result: replyContent, tries: 1 }
         await setGptRequestCache(chatMessageKey, data)
-        return [null, defaultReturnData]
+        return [null, data]
       } catch (error: any) {
         if (error.code !== 'EAI_AGAIN' || countdown <= 0) {
           await setGptRequestCache(chatMessageKey, defaultReturnData)
