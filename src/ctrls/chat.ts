@@ -293,38 +293,56 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
       ]
     }
 
-    let replyContent = ''
+    const getReply = async (): Promise<string> => {
+      try {
+        const timerLabel = `[${res.locals.reqId}] start request gpt`
+        console.time(timerLabel)
+        console.log(timerLabel)
+        const gptResp = await axios.post(
+          GPT_API_URL,
+          gptRequestBody,
+          {
+            headers: {
+              'api-key': `${process.env.GPT_API_KEY}`,
+              'Content-Type': 'application/json'
+            }
+          })
+        console.timeEnd(timerLabel)
 
-    try {
-      const timerLabel = `[${res.locals.reqId}] start request gpt`
-      console.time(timerLabel)
-      console.log(timerLabel)
-      const gptResp = await axios.post(
-        GPT_API_URL,
-        gptRequestBody,
-        {
-          headers: {
-            'api-key': `${process.env.GPT_API_KEY}`,
-            'Content-Type': 'application/json'
-          }
-        })
-      console.timeEnd(timerLabel)
-
-      const gptRespData = gptResp.data
-      const { content } = _.get(gptRespData, ['choices', 0, 'message'], {})
-      replyContent = content || ''
-
-      if (gptResp.status !== 200 || !replyContent) {
-        console.error(`[${res.locals.reqId}] gpt api return invalid data: ${gptResp.status}, ${JSON.stringify(gptResp.data, null, 4)}`)
-        return [null, { result: '', completed: true, tries: 1 }]
+        const gptRespData = gptResp.data
+        const { content } = _.get(gptRespData, ['choices', 0, 'message'], {})
+        const replyContent = content || ''
+        if (gptResp.status !== 200 || !replyContent) {
+          console.error(`[${res.locals.reqId}] gpt api return invalid data: ${gptResp.status}, ${JSON.stringify(gptResp.data, null, 4)}`)
+          return ''
+        }
+        return replyContent
+      } catch (error: any) {
+        console.error(`[${res.locals.reqId}] gpt api error: ${error}`)
+        // return [error, { result: '', completed: true, tries: 1}]
+        throw error
       }
-      return [null, { result: replyContent, completed: true, tries: 1 }]
-    } catch (error: any) {
-      console.error(`[${res.locals.reqId}] gpt api error: ${error}`)
-      return [error, { result: '', completed: true, tries: 1}]
-    } finally {
-      await setGptRequestCache(chatMessageKey, { completed: true, result: replyContent, tries: 1 })
     }
+
+    const defaultReturnData = { completed: true, result: '', tries: 1}
+    let countdown = 3
+    while (countdown-- > 0) {
+      try {
+        const replyContent = await getReply()
+        const data ={ completed: true, result: replyContent, tries: 1 }
+        await setGptRequestCache(chatMessageKey, data)
+        return [null, defaultReturnData]
+      } catch (error: any) {
+        if (error.code !== 'EAI_AGAIN' || countdown <= 0) {
+          await setGptRequestCache(chatMessageKey, defaultReturnData)
+          return [error, defaultReturnData]
+        }
+        const randomDelay = Math.floor(Math.random() * 1000) + 500
+        console.warn(`[${res.locals.reqId}] gpt api error: ${error}, would retry in ${randomDelay}ms`)
+        await waitMs(randomDelay)
+      }
+    }
+    return [null, defaultReturnData]
   })();
 
   const [{ chatMessage, validReply, newReply }, [requestError, { result: replyContent, completed, tries }]] = await Promise.all([pendingGetOrCreateChatMessage, pendingDetermineReplyContent])
