@@ -48,6 +48,8 @@ export async function setGptRequestCache(chatMessageKey: string, data: GptReques
 export function isCarMove(text: string) {
   return text.includes('挪车') ||
     text.includes('拖车') ||
+    text.includes('挪走') ||
+    text.includes('开走') ||
     text.includes('挪一下') ||
     text.includes('动一下') ||
     text.includes('你的车') ||
