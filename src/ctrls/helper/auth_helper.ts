@@ -39,7 +39,7 @@ export async function getGptRequestCache(chatMessageKey: string): Promise<GptReq
 export async function setGptRequestCache(chatMessageKey: string, data: GptRequestCache) {
   try {
     await pendingRedisConnect
-    await redisClient.set(chatMessageKey, JSON.stringify(data))
+    await redisClient.set(chatMessageKey, JSON.stringify(data), { EX: 15 })
   } catch (error) {
     console.error('setGptRequestCache', error)
   }
