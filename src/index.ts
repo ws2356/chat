@@ -79,9 +79,11 @@ console.error('process.env.NODE_ENV: ', process.env.NODE_ENV);
   app.use((req, res, next) => {
     const reqId = Math.random().toString(36).substr(2, 8)
     res.locals.reqId = reqId
-    console.log(`[${reqId}] [${new Date().toISOString()}] ${req.method} ${req.host} ${req.url} start`)
+    const startAt = new Date()
+    console.log(`[${reqId}] [${startAt.toISOString()}] ${req.method} ${req.host} ${req.url}`)
     next()
-    console.log(`[${reqId}] [${new Date().toISOString()}] ${req.method} ${req.host} ${req.url} end`)
+    const endAt = new Date()
+    console.log(`[${reqId}] [${endAt.toISOString()}] ${req.method} ${req.host} ${req.url}: ${endAt.getTime() - startAt.getTime()}ms`)
   })
 
   app.get('/302setcookie', (req, res) => {
