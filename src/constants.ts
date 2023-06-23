@@ -20,7 +20,7 @@ export const GPT_SYSTEM_ROLE_INFO = {
 export const GPT_REQUEST_TEMPLATE = {
   "messages": [],
   "max_tokens": 4000,
-  "temperature": 0.8,
+  "temperature": 0.1,
   "frequency_penalty": 0,
   "presence_penalty": 0,
   "top_p": 0.95,
