@@ -292,6 +292,9 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
         { role: 'user', content: Content }
       ]
     }
+    if (Content.endsWith('谨慎作答')) {
+      gptRequestBody.temperature = 0
+    }
 
     const getReply = async (): Promise<string> => {
       try {

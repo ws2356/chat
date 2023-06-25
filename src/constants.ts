@@ -23,7 +23,6 @@ export const GPT_REQUEST_TEMPLATE = {
   "temperature": 0.1,
   "frequency_penalty": 0,
   "presence_penalty": 0,
-  "top_p": 0.95,
   "stop": null
 }
 
