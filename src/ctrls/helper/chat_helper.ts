@@ -45,8 +45,9 @@ export async function setGptRequestCache(chatMessageKey: string, data: GptReques
   }
 }
 
-export function isCarMove(text: string) {
-  return text.includes('挪车') ||
+export function tryMatchFixedConversation(text: string): string {
+  const carMoveReply = `车主已经收到您的消息。即将为您挪车。紧急情况请拨打：${process.env.MY_PHONE_NUMBER}。`
+  const isCarMove = text.includes('挪车') ||
     text.includes('拖车') ||
     text.includes('挪走') ||
     text.includes('开走') ||
@@ -54,6 +55,10 @@ export function isCarMove(text: string) {
     text.includes('动一下') ||
     text.includes('你的车') ||
     text.includes('你车')
+  if (isCarMove) {
+    return carMoveReply
+  }
+  return ''
 }
 
 export function verifyWechatSignature(req: express.Request, res: express.Response): boolean {

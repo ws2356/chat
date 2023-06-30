@@ -5,7 +5,7 @@ import _ from 'lodash'
 import * as xml2js from 'xml2js'
 import { getChatMessageRepo, dataSource, getChatReplyRepo, getChatSubscriptionRepo } from '../db'
 import { ChatMessage } from '../entity/chat_message'
-import { getGptRequestCache, setGptRequestCache, waitMs, isCarMove, verifyWechatSignature, isReplyValid } from './helper/chat_helper'
+import { getGptRequestCache, setGptRequestCache, waitMs, tryMatchFixedConversation, verifyWechatSignature, isReplyValid } from './helper/chat_helper'
 import { AUTH_TYPE_MLGB, GPT_API_URL, GPT_REQUEST_TEMPLATE, GPT_SYSTEM_ROLE_INFO } from '../constants'
 import { ChatReply } from '../entity/chat_reply'
 
@@ -270,9 +270,9 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
 
   // no throw
   const pendingDetermineReplyContent = (async (): Promise<[any, { result: string, completed: boolean, tries: number }]> => {
-    if (isCarMove(Content)) {
-      const carMoveReply = `车主已经收到您的消息。即将为您挪车。紧急情况请拨打：${process.env.MY_PHONE_NUMBER}。`
-      return [null, { result: carMoveReply, completed: true, tries: 0 }]
+    const fixedReply = tryMatchFixedConversation(Content)
+    if (fixedReply) {
+      return [null, { result: fixedReply, completed: true, tries: 0 }]
     }
 
     const chatMessageKey = `${AUTH_TYPE_MLGB}-${FromUserName}-${MsgId}-${MsgType}`
