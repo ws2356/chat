@@ -5,7 +5,7 @@ import _ from 'lodash'
 import * as xml2js from 'xml2js'
 import { getChatMessageRepo, dataSource, getChatReplyRepo, getChatSubscriptionRepo } from '../db'
 import { ChatMessage } from '../entity/chat_message'
-import { getGptRequestCache, setGptRequestCache, waitMs, tryMatchFixedConversation, verifyWechatSignature, isReplyValid } from './helper/chat_helper'
+import { getGptRequestCache, setGptRequestCache, waitMs, verifyWechatSignature, isReplyValid, getMessageOptions } from './helper/chat_helper'
 import { AUTH_TYPE_MLGB, GPT_API_URL, GPT_REQUEST_TEMPLATE, GPT_SYSTEM_ROLE_INFO } from '../constants'
 import { ChatReply } from '../entity/chat_reply'
 
@@ -80,26 +80,6 @@ async function sendReply(res: express.Response, wechatEvent: WechatBaseEvent, re
   }
 }
 
-async function sendTestLinkReply(res: express.Response, wechatEvent: WechatBaseEvent, replyContent: string): Promise<boolean> {
-  const replyMessage = {
-    ToUserName: wechatEvent.FromUserName,
-    FromUserName: wechatEvent.ToUserName,
-    CreateTime: Math.floor(Date.now() / 1000),
-    MsgType: wechatEvent.MsgType, // currently only support replying with text
-    Title: 'test link',
-    Description: 'test link',
-    Url: replyContent,
-  }
-  const replyXml = new xml2js.Builder().buildObject({ xml: replyMessage })
-  try {
-    await sendResult(res, 200, replyXml)
-    return true
-  } catch (error) {
-    console.error(`[${res.locals.reqId}] sendReply fail: ${error}`)
-    return false
-  }
-}
-
 async function markReplyAsReplied(id: number, reply: Partial<ChatReply>) {
   try {
     await getChatReplyRepo().update(id, { ...reply, replied: true })
@@ -124,7 +104,7 @@ export async function handleWechatSubscription(req: express.Request, res: expres
   }
   
   if (Event === 'subscribe') {
-    const welcomeMessage = '欢迎关注！如果需要联系挪车，直接回复消息：“挪车”。'
+    const welcomeMessage = `欢迎关注我的公众号！如果需要联系本人，请拨打电话：${process.env.MY_PHONE_NUMBER}`
     await sendReply(res, subscribeEvent, welcomeMessage)
   } else {
     const welcomeMessage = '你知道吗，本公众号是一个高级人工智能机器人，你可以直接和它聊天（不要提到挪车。。），它会自动回复你的。'
@@ -194,16 +174,18 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
     return
   }
 
-  const Content = MsgType === 'voice' ? Recognition : ( MsgType === 'text' ? TextContent : Url)
+  const rawContent = MsgType === 'voice' ? Recognition : ( MsgType === 'text' ? TextContent : Url)
 
-  if (Content.startsWith('https://')) {
-    await sendTestLinkReply(res, { ToUserName, FromUserName, CreateTime, MsgType: 'link' }, Content)
+  if (!rawContent) {
+    console.error(`empty content: ${JSON.stringify(data, null, 4)}`)
+    res.status(400).send('empty content')
     return
   }
 
+  const messageOptions = getMessageOptions(rawContent)
+  const Content = rawContent.substring(messageOptions.optionLength)
   if (!Content) {
-    console.error(`empty content: ${JSON.stringify(data, null, 4)}`)
-    res.status(400).send('empty content')
+    res.status(200).send('success')
     return
   }
 
@@ -270,11 +252,6 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
 
   // no throw
   const pendingDetermineReplyContent = (async (): Promise<[any, { result: string, completed: boolean, tries: number }]> => {
-    const fixedReply = tryMatchFixedConversation(Content)
-    if (fixedReply) {
-      return [null, { result: fixedReply, completed: true, tries: 0 }]
-    }
-
     const chatMessageKey = `${AUTH_TYPE_MLGB}-${FromUserName}-${MsgId}-${MsgType}`
     const cachedRequest = await getGptRequestCache(chatMessageKey)
     if (cachedRequest) {
@@ -292,7 +269,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
         { role: 'user', content: Content }
       ]
     }
-    if (Content.endsWith('谨慎作答')) {
+    if (messageOptions.deterministic) {
       gptRequestBody.temperature = 0
     }
 

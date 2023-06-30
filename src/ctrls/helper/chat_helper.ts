@@ -4,6 +4,7 @@ import crypto from 'crypto'
 import { createClient } from 'redis'
 import { getChatMessageRepo } from '../../db'
 import { ChatReply } from '../../entity/chat_reply'
+import { match } from 'assert'
 
 export async function waitMs(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -45,20 +46,28 @@ export async function setGptRequestCache(chatMessageKey: string, data: GptReques
   }
 }
 
-export function tryMatchFixedConversation(text: string): string {
-  const carMoveReply = `车主已经收到您的消息。即将为您挪车。紧急情况请拨打：${process.env.MY_PHONE_NUMBER}。`
-  const isCarMove = text.includes('挪车') ||
-    text.includes('拖车') ||
-    text.includes('挪走') ||
-    text.includes('开走') ||
-    text.includes('挪一下') ||
-    text.includes('动一下') ||
-    text.includes('你的车') ||
-    text.includes('你车')
-  if (isCarMove) {
-    return carMoveReply
+export type MessageOptions = {
+  optionLength: number
+  deterministic?: boolean
+  newThread?: boolean
+}
+
+const MessageOptionRegexp = /^(换个话题[ ，。,.])?(想清楚再回答[ ，。,.])?/
+
+export function getMessageOptions(msg: string): MessageOptions {
+  const options: MessageOptions = { optionLength: 0 }
+  const match = msg.match(MessageOptionRegexp)
+  if (!match) {
+    return options
   }
-  return ''
+  options.optionLength = match[0].length
+  if (match[1]) {
+    options.newThread = true
+  }
+  if (match[2]) {
+    options.deterministic = true
+  }
+  return options
 }
 
 export function verifyWechatSignature(req: express.Request, res: express.Response): boolean {
