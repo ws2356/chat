@@ -13,7 +13,7 @@ import * as qs from 'qs'
 import xmlParser from 'express-xml-bodyparser'
 import router from './router'
 import { initDb } from './db'
-import { getMessageById } from './ctrls/helper/auth_helper'
+import { getMessageById } from './ctrls/helper/chat_helper'
 import { triggerAsyncId } from "async_hooks"
 
 const readFileAsync = util.promisify(fs.readFile);
