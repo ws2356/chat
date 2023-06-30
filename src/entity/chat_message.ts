@@ -1,5 +1,6 @@
-import { Entity, Index, PrimaryGeneratedColumn, OneToOne, OneToMany, JoinColumn, Column } from "typeorm"
+import { Entity, Index, PrimaryGeneratedColumn, ManyToOne, OneToMany, JoinColumn, Column } from "typeorm"
 import { ChatReply } from "./chat_reply"
+import { ChatThread } from "./chat_thread"
 
 @Entity()
 @Index(['authId', 'authType', 'msgId'], { unique: true })
@@ -32,6 +33,10 @@ export class ChatMessage {
 
   @OneToMany(() => ChatReply, reply => reply.chatMessage, { eager: true })
   replies!: ChatReply[]
+
+  @ManyToOne(() => ChatThread, (thread) => thread.messages)
+  @JoinColumn({ name: 'chat_thread_id' })
+  chatThread!: ChatThread
 
   @Column({ name: 'media_id', length: 128, nullable: true })
   mediaId!: string
