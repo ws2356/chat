@@ -4,6 +4,7 @@ import { Repository, DataSource, EntityManager } from 'typeorm'
 import { ChatMessage } from './entity/chat_message'
 import { ChatReply } from './entity/chat_reply'
 import { ChatSubscription } from './entity/chat_subscription'
+import { ChatThread } from './entity/chat_thread'
 
 const ormconfigPath = path.resolve(__dirname, '../ormconfig.json')
 const dbConfig = JSON.parse(fs.readFileSync(ormconfigPath).toString())
@@ -32,4 +33,8 @@ export function getChatReplyRepo(entityManager?: EntityManager): Repository<Chat
 
 export function getChatSubscriptionRepo(entityManager?: EntityManager): Repository<ChatSubscription> {
   return (entityManager || getManager()).getRepository(ChatSubscription)
+}
+
+export function getChatThreadRepo(entityManager?: EntityManager): Repository<ChatThread> {
+  return (entityManager || getManager()).getRepository(ChatThread)
 }

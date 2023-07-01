@@ -3,11 +3,12 @@ import { Readable } from 'stream'
 import axios from 'axios'
 import _ from 'lodash'
 import * as xml2js from 'xml2js'
-import { getChatMessageRepo, dataSource, getChatReplyRepo, getChatSubscriptionRepo } from '../db'
+import { getChatMessageRepo, dataSource, getChatReplyRepo, getChatSubscriptionRepo, getChatThreadRepo } from '../db'
 import { ChatMessage } from '../entity/chat_message'
 import { getGptRequestCache, setGptRequestCache, waitMs, verifyWechatSignature, isReplyValid, getMessageOptions } from './helper/chat_helper'
 import { AUTH_TYPE_MLGB, GPT_API_URL, GPT_REQUEST_TEMPLATE, GPT_SYSTEM_ROLE_INFO } from '../constants'
 import { ChatReply } from '../entity/chat_reply'
+import { ChatThread } from '../entity/chat_thread'
 
 
 type SupportedMsgType = 'text' | 'voice' | 'event' | 'link'
@@ -189,6 +190,8 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
     return
   }
 
+  const chatMessageKey = `${AUTH_TYPE_MLGB}-${FromUserName}-${MsgId}-${MsgType}`
+  const cachedRequest = await getGptRequestCache(chatMessageKey)
   // no throw
   const pendingGetOrCreateChatMessage = dataSource.transaction(async (manager) => {
     try {
@@ -204,6 +207,44 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
         return chatMessage
       }
 
+      let latestThread: ChatThread | null = null
+      if (!messageOptions.newThread) {
+        latestThread = await getChatThreadRepo(manager).findOne({
+          where: {
+            authType: AUTH_TYPE_MLGB,
+            authId: FromUserName,
+          },
+          order: { createdAt: 'DESC' },
+        })
+        if (latestThread && latestThread.completed) {
+          latestThread = null
+        }
+      } else {
+        const lastThreadToFinish = await getChatThreadRepo(manager).findOne({
+          where: {
+            authType: AUTH_TYPE_MLGB,
+            authId: FromUserName,
+          },
+          order: { createdAt: 'DESC' },
+        })
+
+        if (lastThreadToFinish && !lastThreadToFinish.completed) {
+          lastThreadToFinish.completed = true
+          await getChatThreadRepo(manager).save(lastThreadToFinish)
+        }
+      }
+      if (!latestThread) {
+        const now = new Date()
+        latestThread = await getChatThreadRepo(manager).save({
+          authType: AUTH_TYPE_MLGB,
+          authId: FromUserName,
+          toUserName: ToUserName,
+          completed: false,
+          createdAt: now,
+          updatedAt: now,
+        })
+      }
+
       const now = new Date()
       const ret = await getChatMessageRepo(manager).save({
         authType: AUTH_TYPE_MLGB,
@@ -215,6 +256,8 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
         createTime: new Date(parseInt(CreateTime) * 1000),
         mediaId: MediaId || null,
         format: Format || null,
+        chatThread: latestThread,
+        tries: 1,
       })
       const reply = await getChatReplyRepo(manager).save({
         loadStatus: 4,
@@ -246,21 +289,31 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
       } catch (error) {
         console.error(`[${res.locals.reqId}] markReplyPending error: ${error}`)
       }
+    } else if (chatMessage) {
+      chatMessage.tries += 1
+      try {
+        await getChatMessageRepo().update(chatMessage.id, chatMessage)
+      } catch (error) {
+        console.error(`[${res.locals.reqId}] updateTries error: ${error}`)
+      }
     }
     return { chatMessage, validReply, newReply }
   })
 
+  const { chatMessage, validReply, newReply } = await pendingGetOrCreateChatMessage
+
+  // if newReply: need call GPT
+  // else poll
+
   // no throw
-  const pendingDetermineReplyContent = (async (): Promise<[any, { result: string, completed: boolean, tries: number }]> => {
-    const chatMessageKey = `${AUTH_TYPE_MLGB}-${FromUserName}-${MsgId}-${MsgType}`
-    const cachedRequest = await getGptRequestCache(chatMessageKey)
-    if (cachedRequest) {
-      cachedRequest.tries += 1
-      await setGptRequestCache(chatMessageKey, { ...cachedRequest })
-      return [null, cachedRequest]
-    } else {
-      await setGptRequestCache(chatMessageKey, { completed: false, result: '', tries: 1 })
-    }
+  const pendingDetermineReplyContent = (async (): Promise<string> => {
+    // if (cachedRequest) {
+    //   cachedRequest.tries += 1
+    //   await setGptRequestCache(chatMessageKey, { ...cachedRequest })
+    //   return [null, cachedRequest]
+    // } else {
+    //   await setGptRequestCache(chatMessageKey, { completed: false, result: '', tries: 1 })
+    // }
 
     const gptRequestBody = {
       ...GPT_REQUEST_TEMPLATE,
@@ -291,41 +344,50 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
 
         const gptRespData = gptResp.data
         const { content } = _.get(gptRespData, ['choices', 0, 'message'], {})
+        const { finish_reason: finishReason } = _.get(gptRespData, ['choices', 0], {})
+        const isFinished = ['stop', 'length'].includes(finishReason)
+
+        if (isFinished) {
+          const thread = chatMessage!.chatThread!
+          try {
+            await getChatThreadRepo().update(thread.id, { completed: true })
+          } catch (error) {
+            console.error(`[${res.locals.reqId}] update thread completed error: ${error}`)
+          }
+        }
+
         const replyContent = content || ''
         if (gptResp.status !== 200 || !replyContent) {
           console.error(`[${res.locals.reqId}] gpt api return invalid data: ${gptResp.status}, ${JSON.stringify(gptResp.data, null, 4)}`)
           return ''
         }
-        return replyContent
+        return `${replyContent}。本次对话已结束，请开始新的话题。`
       } catch (error: any) {
         console.error(`[${res.locals.reqId}] gpt api error: ${error}`)
-        // return [error, { result: '', completed: true, tries: 1}]
         throw error
       }
     }
 
-    const defaultReturnData = { completed: true, result: '', tries: 1}
     let countdown = 3
     while (countdown-- > 0) {
       try {
         const replyContent = await getReply()
-        const data ={ completed: true, result: replyContent, tries: 1 }
-        await setGptRequestCache(chatMessageKey, data)
-        return [null, data]
+        return replyContent
       } catch (error: any) {
         if (error.code !== 'EAI_AGAIN' || countdown <= 0) {
-          await setGptRequestCache(chatMessageKey, defaultReturnData)
-          return [error, defaultReturnData]
+          if (newReply) {
+            newReply.loadStatus = 3
+            await getChatReplyRepo().update({ id: newReply.id }, { loadStatus: 3 })
+          }
+          return ''
         }
         const randomDelay = Math.floor(Math.random() * 1000) + 500
         console.warn(`[${res.locals.reqId}] gpt api error: ${error}, would retry in ${randomDelay}ms`)
         await waitMs(randomDelay)
       }
     }
-    return [null, defaultReturnData]
+    return ''
   })();
-
-  const [{ chatMessage, validReply, newReply }, [requestError, { result: replyContent, completed, tries }]] = await Promise.all([pendingGetOrCreateChatMessage, pendingDetermineReplyContent])
 
   if (!chatMessage) {
     console.error(`[${res.locals.reqId}] server error: chatMessage not found`)
@@ -333,7 +395,10 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
     return
   }
 
+  const tries = chatMessage.tries
+  const replyContent = newReply ? (await pendingDetermineReplyContent) : ''
   const content = validReply ? validReply.reply! : replyContent
+
   if (content) {
     const replied = await sendXmlReply(
       res,
@@ -345,7 +410,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
       },
       content
     )
-    if (tries === 1 && replyContent && newReply) {
+    if (newReply) {
       newReply.reply = replyContent
       newReply.loadStatus = 1
       try {
@@ -364,7 +429,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
     } else if (validReply && replied) {
       await markReplyAsReplied(validReply.id, { replied })
     }
-  } else if (!completed) {
+  } else if (!newReply) {
     // polls
     let validReply: ChatReply | undefined
     const pollTime = tries === 3 ? 2 : 5
@@ -417,10 +482,5 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
   } else {
     console.error(`[${res.locals.reqId}] first run gpt request failed`)
     res.status(500).send(`server fail: ${res.locals.reqId}`)
-  }
-
-  if (newReply && tries === 1 && requestError) {
-    newReply.loadStatus = 3
-    await getChatReplyRepo().update({ id: newReply.id }, { loadStatus: 3 })
   }
 }

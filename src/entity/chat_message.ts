@@ -43,4 +43,8 @@ export class ChatMessage {
 
   @Column({ name: 'format', length: 16, nullable: true })
   format!: string
+
+  // default 1
+  @Column()
+  tries!: number
 }
