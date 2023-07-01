@@ -11,7 +11,7 @@ const dbConfig = JSON.parse(fs.readFileSync(ormconfigPath).toString())
 
 export const dataSource = new DataSource({
   ...dbConfig,
-    entities: [ChatMessage, ChatReply, ChatSubscription],
+    entities: [ChatMessage, ChatReply, ChatSubscription, ChatThread],
     loggerLevel: 'warn',
 })
 
