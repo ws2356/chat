@@ -53,7 +53,7 @@ async function sendResult(res: express.Response, status: number, result: string)
 }
 
 export async function healthCheck(req: express.Request, res: express.Response) {
-  res.type('application/xml')
+  res.type('text/plain')
   try {
     await sendResult(res, 200, 'success')
     console.log('healthCheck ok')
@@ -62,7 +62,7 @@ export async function healthCheck(req: express.Request, res: express.Response) {
   }
 }
 
-async function sendReply(res: express.Response, wechatEvent: WechatBaseEvent, replyContent: string): Promise<boolean> {
+async function sendXmlReply(res: express.Response, wechatEvent: WechatBaseEvent, replyContent: string): Promise<boolean> {
   const replyMessage = {
     ToUserName: wechatEvent.FromUserName,
     FromUserName: wechatEvent.ToUserName,
@@ -72,6 +72,7 @@ async function sendReply(res: express.Response, wechatEvent: WechatBaseEvent, re
   }
   const replyXml = new xml2js.Builder().buildObject({ xml: replyMessage })
   try {
+    res.type('application/xml')
     await sendResult(res, 200, replyXml)
     return true
   } catch (error) {
@@ -99,16 +100,17 @@ export async function handleWechatSubscription(req: express.Request, res: expres
     typeof CreateTime !== 'string' ||
     (Event !== 'subscribe' && Event !== 'unsubscribe')) {
     console.error(`bad arg: ${JSON.stringify(subscribeEvent, null, 4)}`)
+    res.type('text/plain')
     res.status(400).send('bad arg')
     return
   }
   
   if (Event === 'subscribe') {
     const welcomeMessage = `欢迎关注我的公众号！如果需要联系本人，请拨打电话：${process.env.MY_PHONE_NUMBER}`
-    await sendReply(res, subscribeEvent, welcomeMessage)
+    await sendXmlReply(res, subscribeEvent, welcomeMessage)
   } else {
     const welcomeMessage = '你知道吗，本公众号是一个高级人工智能机器人，你可以直接和它聊天（不要提到挪车。。），它会自动回复你的。'
-    await sendReply(res, subscribeEvent, welcomeMessage)
+    await sendXmlReply(res, subscribeEvent, welcomeMessage)
   }
 
   try {
@@ -130,8 +132,6 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
     res.status(400).send('bad signature')
     return
   }
-
-  res.type('application/xml')
 
   const data: any = req.body || {}
   const {
@@ -170,7 +170,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
   }
 
   if (['text', 'voice', 'link'].indexOf(MsgType) === -1) {
-    await sendReply(res, { ToUserName, FromUserName, CreateTime, MsgType }, '暂不支持此消息类型')
+    await sendXmlReply(res, { ToUserName, FromUserName, CreateTime, MsgType }, '暂不支持此消息类型')
     return
   }
 
@@ -335,7 +335,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
 
   const content = validReply ? validReply.reply! : replyContent
   if (content) {
-    const replied = await sendReply(
+    const replied = await sendXmlReply(
       res,
       {
         ToUserName,
@@ -388,7 +388,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
       // second try: no reply
       // third try: reply a web page for client to poll further
       if (tries === 3) {
-        await sendReply(
+        await sendXmlReply(
           res,
           {
             ToUserName,
@@ -400,7 +400,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
         )
       }
     } else {
-      const replied = await sendReply(
+      const replied = await sendXmlReply(
         res,
         {
           ToUserName,
@@ -423,31 +423,4 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
     newReply.loadStatus = 3
     await getChatReplyRepo().update({ id: newReply.id }, { loadStatus: 3 })
   }
-}
-
-
-export async function getMessageById(req: express.Request, res: express.Response) {
-  const { id } = req.params as { id: string }
-  const idNum = parseInt(id, 10)
-  if (isNaN(idNum)) {
-    res.status(400).send('invalid id')
-    return
-  }
-  const chatMessage = await getChatMessageRepo().findOne({ where: { id: idNum } })
-  if (!chatMessage) {
-    res.status(404).send('not found')
-    return
-  }
-  res.type('application/json')
-  chatMessage.replies.sort((a, b) => {
-    const aLoaded = a.loadedAt ? a.loadedAt.getTime() : 0
-    const bLoaded = b.loadedAt ? b.loadedAt.getTime() : 0
-    return aLoaded - bLoaded
-  })
-  const validReplies = chatMessage.replies.filter((reply) => isReplyValid(reply))
-  const data = {
-    message: chatMessage.content,
-    replies: validReplies.map((reply) => reply.reply),
-  }
-  res.send(JSON.stringify(data))
 }
