@@ -327,7 +327,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
         const timerLabel = `[${res.locals.reqId}] start request gpt`
         console.time(timerLabel)
         console.log(timerLabel)
-        console.log(JSON.stringify(gptRequestBody, null, 4))
+        console.log(`[${res.locals.reqId}] req: ${JSON.stringify(gptRequestBody, null, 4)}`)
         const gptResp = await axios.post(
           GPT_API_URL,
           gptRequestBody,
@@ -340,6 +340,8 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
         console.timeEnd(timerLabel)
 
         const gptRespData = gptResp.data
+        console.log(`[${res.locals.reqId}] res: ${JSON.stringify(gptRespData, null, 4)}`)
+
         const { content } = _.get(gptRespData, ['choices', 0, 'message'], {})
         const { finish_reason: finishReason } = _.get(gptRespData, ['choices', 0], {})
         const isFinished = ['stop', 'length'].includes(finishReason)
