@@ -400,7 +400,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
   }
 
   const tries = chatMessage.tries
-  const replyContent = newReply ? (await pendingDetermineReplyContent) : ''
+  const replyContent = tries === 1 ? (await pendingDetermineReplyContent) : ''
   const content = validReply ? validReply.reply! : replyContent
 
   if (content) {
