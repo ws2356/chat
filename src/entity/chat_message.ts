@@ -34,7 +34,7 @@ export class ChatMessage {
   @OneToMany(() => ChatReply, reply => reply.chatMessage, { eager: true })
   replies!: ChatReply[]
 
-  @ManyToOne(() => ChatThread, (thread) => thread.messages)
+  @ManyToOne(() => ChatThread, (thread) => thread.messages, { eager: true })
   @JoinColumn({ name: 'chat_thread_id' })
   chatThread!: ChatThread
 

@@ -198,7 +198,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
           authId: FromUserName,
           msgId: MsgId,
           msgType: MsgType,
-        }
+        },
       })
       if (chatMessage) {
         return chatMessage
@@ -263,8 +263,6 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
         chatMessage: ret,
       })
       ret.replies = [reply]
-      ret.chatThread = (await getChatThreadRepo(manager).findOne({ where: { id: latestThread.id } })) as any
-      console.log(`[${res.locals.reqId}] find or create success: ${JSON.stringify(ret, null, 4)}`)
       return ret
     } catch (error) {
       console.error(`[${res.locals.reqId}] find or create fail: ${error}`)
@@ -295,6 +293,12 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
         await getChatMessageRepo().update(chatMessage.id, { tries: chatMessage.tries })
       } catch (error) {
         console.error(`[${res.locals.reqId}] updateTries error: ${error}`)
+      }
+    }
+    if (chatMessage) {
+      const thread = chatMessage.chatThread
+      if (thread) {
+        thread.messages = await getChatMessageRepo().find({ where: { chatThread: thread } })
       }
     }
     return { chatMessage, validReply, newReply }

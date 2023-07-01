@@ -27,6 +27,6 @@ export class ChatThread {
   @Column({ name: 'updated_at', nullable: false })
   updatedAt?: Date
 
-  @OneToMany(() => ChatMessage, msg => msg.chatThread, { eager: true })
+  @OneToMany(() => ChatMessage, msg => msg.chatThread)
   messages!: ChatMessage[]
 }
