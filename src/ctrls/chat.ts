@@ -145,8 +145,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
     mediaid: MediaId,
     format: Format,
     event: Event,
-    recognition: Recognition,
-    url: Url } = _.mapValues(data.xml, (v: any) => v && v[0])
+    recognition: Recognition } = _.mapValues(data.xml, (v: any) => v && v[0])
 
   if (MsgType === 'event') {
     await handleWechatSubscription(
@@ -175,7 +174,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
     return
   }
 
-  const rawContent = MsgType === 'voice' ? Recognition : ( MsgType === 'text' ? TextContent : Url)
+  const rawContent = MsgType === 'voice' ? Recognition : TextContent
 
   if (!rawContent) {
     console.error(`empty content: ${JSON.stringify(data, null, 4)}`)
@@ -284,14 +283,14 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
     if (newReply) {
       newReply.loadStatus = 2
       try {
-        await getChatReplyRepo().update(newReply.id, newReply)
+        await getChatReplyRepo().update(newReply.id, { loadStatus: 2})
       } catch (error) {
         console.error(`[${res.locals.reqId}] markReplyPending error: ${error}`)
       }
     } else if (chatMessage) {
       chatMessage.tries += 1
       try {
-        await getChatMessageRepo().update(chatMessage.id, chatMessage)
+        await getChatMessageRepo().update(chatMessage.id, { tries: chatMessage.tries })
       } catch (error) {
         console.error(`[${res.locals.reqId}] updateTries error: ${error}`)
       }
