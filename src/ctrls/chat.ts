@@ -230,6 +230,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
 
         if (lastThreadToFinish && !lastThreadToFinish.completed) {
           lastThreadToFinish.completed = true
+          lastThreadToFinish.updatedAt = new Date()
           await getChatThreadRepo(manager).save(lastThreadToFinish)
         }
       }
@@ -350,7 +351,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
         if (isFinished) {
           const thread = chatMessage!.chatThread!
           try {
-            await getChatThreadRepo().update(thread.id, { completed: true })
+            await getChatThreadRepo().update(thread.id, { completed: true, updatedAt: new Date() })
           } catch (error) {
             console.error(`[${res.locals.reqId}] update thread completed error: ${error}`)
           }
