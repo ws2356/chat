@@ -263,6 +263,8 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
         chatMessage: ret,
       })
       ret.replies = [reply]
+      ret.chatThread = (await getChatThreadRepo(manager).findOne({ where: { id: latestThread.id } })) as any
+      console.log(`[${res.locals.reqId}] find or create success: ${JSON.stringify(ret, null, 4)}`)
       return ret
     } catch (error) {
       console.error(`[${res.locals.reqId}] find or create fail: ${error}`)
