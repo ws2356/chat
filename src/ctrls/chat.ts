@@ -5,13 +5,13 @@ import _ from 'lodash'
 import * as xml2js from 'xml2js'
 import { getChatMessageRepo, dataSource, getChatReplyRepo, getChatSubscriptionRepo, getChatThreadRepo } from '../db'
 import { ChatMessage } from '../entity/chat_message'
-import { getGptRequestCache, setGptRequestCache, waitMs, verifyWechatSignature, isReplyValid, getMessageOptions } from './helper/chat_helper'
+import { getGptRequestCache, setGptRequestCache, waitMs, verifyWechatSignature, isReplyValid, getMessageOptions, formatChatThread } from './helper/chat_helper'
 import { AUTH_TYPE_MLGB, GPT_API_URL, GPT_REQUEST_TEMPLATE, GPT_SYSTEM_ROLE_INFO } from '../constants'
 import { ChatReply } from '../entity/chat_reply'
 import { ChatThread } from '../entity/chat_thread'
 
 
-type SupportedMsgType = 'text' | 'voice' | 'event' | 'link'
+type SupportedMsgType = 'text' | 'voice' | 'event'
 
 interface WechatBaseEvent {
   ToUserName: string,
@@ -110,7 +110,7 @@ export async function handleWechatSubscription(req: express.Request, res: expres
     const welcomeMessage = `欢迎关注我的公众号！如果需要联系本人，请拨打电话：${process.env.MY_PHONE_NUMBER}`
     await sendXmlReply(res, subscribeEvent, welcomeMessage)
   } else {
-    const welcomeMessage = '你知道吗，本公众号是一个高级人工智能机器人，你可以直接和它聊天（不要提到挪车。。），它会自动回复你的。'
+    const welcomeMessage = '你知道吗，本公众号是一个高级人工智能机器人，你可以直接和它聊天，它会自动回复你的。'
     await sendXmlReply(res, subscribeEvent, welcomeMessage)
   }
 
@@ -157,7 +157,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
   }
 
   if (typeof MsgId !== 'string' ||
-    (MsgType !== 'text' && MsgType !== 'voice' && MsgType !== 'link') ||
+    (MsgType !== 'text' && MsgType !== 'voice') ||
     (Format === 'text' && typeof TextContent !== 'string') ||
     typeof ToUserName !== 'string' ||
     typeof FromUserName !== 'string' ||
@@ -170,7 +170,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
     return
   }
 
-  if (['text', 'voice', 'link'].indexOf(MsgType) === -1) {
+  if (['text', 'voice'].indexOf(MsgType) === -1) {
     await sendXmlReply(res, { ToUserName, FromUserName, CreateTime, MsgType }, '暂不支持此消息类型')
     return
   }
@@ -190,8 +190,6 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
     return
   }
 
-  const chatMessageKey = `${AUTH_TYPE_MLGB}-${FromUserName}-${MsgId}-${MsgType}`
-  const cachedRequest = await getGptRequestCache(chatMessageKey)
   // no throw
   const pendingGetOrCreateChatMessage = dataSource.transaction(async (manager) => {
     try {
@@ -318,10 +316,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
 
     const gptRequestBody = {
       ...GPT_REQUEST_TEMPLATE,
-      messages: [
-        GPT_SYSTEM_ROLE_INFO,
-        { role: 'user', content: Content }
-      ]
+      messages: formatChatThread(chatMessage!.chatThread),
     }
     if (messageOptions.deterministic) {
       gptRequestBody.temperature = 0
@@ -332,6 +327,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
         const timerLabel = `[${res.locals.reqId}] start request gpt`
         console.time(timerLabel)
         console.log(timerLabel)
+        console.log(JSON.stringify(gptRequestBody, null, 4))
         const gptResp = await axios.post(
           GPT_API_URL,
           gptRequestBody,

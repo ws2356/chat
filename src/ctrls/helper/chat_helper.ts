@@ -4,7 +4,10 @@ import crypto from 'crypto'
 import { createClient } from 'redis'
 import { getChatMessageRepo } from '../../db'
 import { ChatReply } from '../../entity/chat_reply'
+import { ChatMessage } from '../../entity/chat_message'
+import { ChatThread } from '../../entity/chat_thread'
 import { match } from 'assert'
+import { GPT_SYSTEM_ROLE_INFO } from '../../constants'
 
 export async function waitMs(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -115,4 +118,31 @@ export async function getMessageById(id: number): Promise<{ message: string, rep
     replies: validReplies.map((reply) => reply.reply),
   }
   return data as any
+}
+
+export type FormatedChatThreadItem = {
+  role: 'system' | 'user' | 'assistant'
+  content: string
+}
+
+export function formatChatThread(thread: ChatThread): FormatedChatThreadItem[] {
+  const ret: FormatedChatThreadItem[] = [GPT_SYSTEM_ROLE_INFO as any]
+  if (!thread.messages) {
+    return ret
+  }
+  const messages = [...thread.messages]
+  messages.sort((a, b) => {
+    if (!a.createTime || !b.createTime) {
+      return -1
+    }
+    return a.createTime.getTime() - b.createTime.getTime()
+  })
+  for (const message of messages) {
+    ret.push({ role: 'user', content: message.content })
+    const reply = message.replies.find((reply) => isReplyValid(reply))
+    if (reply) {
+      ret.push({ role: 'assistant', content: reply.reply! })
+    }
+  }
+  return ret
 }
