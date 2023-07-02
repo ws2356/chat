@@ -354,7 +354,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
 
         const { content } = _.get(gptRespData, ['choices', 0, 'message'], {})
         const { finish_reason: finishReason } = _.get(gptRespData, ['choices', 0], {})
-        const isFinished = ['stop', 'length'].includes(finishReason)
+        const isFinished = ['length'].includes(finishReason)
 
         if (isFinished) {
           const thread = chatMessage!.chatThread!
