@@ -306,11 +306,17 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
 
   const { chatMessage, validReply, newReply } = await pendingGetOrCreateChatMessage
 
+  if (!chatMessage) {
+    console.error(`[${res.locals.reqId}] server error: chatMessage not found`)
+    res.status(500).send('server error')
+    return
+  }
+
   // if newReply: need call GPT
   // else poll
 
   // no throw
-  const pendingDetermineReplyContent = (async (): Promise<string> => {
+  const pendingDetermineReplyContent = async (): Promise<string> => {
     // if (cachedRequest) {
     //   cachedRequest.tries += 1
     //   await setGptRequestCache(chatMessageKey, { ...cachedRequest })
@@ -329,9 +335,8 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
 
     const getReply = async (): Promise<string> => {
       try {
-        const timerLabel = `[${res.locals.reqId}] start request gpt`
-        console.time(timerLabel)
-        console.log(timerLabel)
+        const now = new Date()
+        console.log(`[${res.locals.reqId}] gpt req starts`)
         console.log(`[${res.locals.reqId}] req: ${JSON.stringify(gptRequestBody, null, 4)}`)
         const gptResp = await axios.post(
           GPT_API_URL,
@@ -342,7 +347,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
               'Content-Type': 'application/json'
             }
           })
-        console.timeEnd(timerLabel)
+        console.log(`[${res.locals.reqId}] gpt req completes: ${new Date().getTime() - now.getTime()}ms`)
 
         const gptRespData = gptResp.data
         console.log(`[${res.locals.reqId}] res: ${JSON.stringify(gptRespData, null, 4)}`)
@@ -365,7 +370,11 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
           console.error(`[${res.locals.reqId}] gpt api return invalid data: ${gptResp.status}, ${JSON.stringify(gptResp.data, null, 4)}`)
           return ''
         }
-        return `${replyContent}。本次对话已结束，请开始新的话题。`
+        if (isFinished) {
+          return `${replyContent} 本次对话已结束，请开始新的话题。`
+        } else {
+          return replyContent
+        }
       } catch (error: any) {
         console.error(`[${res.locals.reqId}] gpt api error: ${error}`)
         throw error
@@ -383,6 +392,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
             newReply.loadStatus = 3
             await getChatReplyRepo().update({ id: newReply.id }, { loadStatus: 3 })
           }
+          console.error(`[${res.locals.reqId}] gpt api error: ${error}`)
           return ''
         }
         const randomDelay = Math.floor(Math.random() * 1000) + 500
@@ -391,16 +401,10 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
       }
     }
     return ''
-  })();
-
-  if (!chatMessage) {
-    console.error(`[${res.locals.reqId}] server error: chatMessage not found`)
-    res.status(500).send('server error')
-    return
-  }
+  };
 
   const tries = chatMessage.tries
-  const replyContent = tries === 1 ? (await pendingDetermineReplyContent) : ''
+  const replyContent = tries === 1 ? (await pendingDetermineReplyContent()) : ''
   const content = validReply ? validReply.reply! : replyContent
 
   if (content) {
@@ -436,7 +440,8 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
   } else if (!newReply) {
     // polls
     let validReply: ChatReply | undefined
-    const pollTime = tries === 3 ? 2 : 5
+    // if last try, poll 3 times otherwise 5 times
+    const pollTime = tries === 3 ? 3 : 5
     for (let i = 0; i < pollTime; ++i) {
       await waitMs(1000)
       const newChatMessage = await getChatMessageRepo().findOne({
@@ -452,7 +457,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
     }
 
     if (!validReply) {
-      console.error(`failed to poll reply: ${res.locals.reqId}`)
+      console.error(`[${res.locals.reqId}] failed to poll reply ${tries}: ${res.locals.reqId}`)
       // res.status(500).send(`failed to poll reply: ${res.locals.reqId}`)
       // second try: no reply
       // third try: reply a web page for client to poll further
