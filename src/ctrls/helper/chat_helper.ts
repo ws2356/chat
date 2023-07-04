@@ -164,6 +164,8 @@ export function formatChatThread(thread: ChatThread): FormatedChatThreadItem[] {
     ret.push({ role: 'user', content: message.content })
   }
 
+  console.log(`prompt tokens: ${tokenCount}`)
+
   for (let i = 1; i < ret.length - i; ++i) {
     const j = ret.length - i
     const tmp = ret[i]
