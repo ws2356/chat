@@ -440,8 +440,8 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
   } else if (!newReply) {
     // polls
     let validReply: ChatReply | undefined
-    // if last try, poll 3 times otherwise 5 times
-    const pollTime = tries === 3 ? 3 : 5
+    // if last try, poll 2 times otherwise 5 times
+    const pollTime = tries === 3 ? 2 : 5
     for (let i = 0; i < pollTime; ++i) {
       await waitMs(1000)
       const newChatMessage = await getChatMessageRepo().findOne({
