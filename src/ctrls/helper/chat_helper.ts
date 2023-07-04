@@ -2,12 +2,13 @@ import express from 'express'
 import _ from 'lodash'
 import crypto from 'crypto'
 import { createClient } from 'redis'
+import * as tiktoken from 'tiktoken'
 import { getChatMessageRepo } from '../../db'
 import { ChatReply } from '../../entity/chat_reply'
 import { ChatMessage } from '../../entity/chat_message'
 import { ChatThread } from '../../entity/chat_thread'
 import { match } from 'assert'
-import { GPT_SYSTEM_ROLE_INFO } from '../../constants'
+import { GPT_SYSTEM_ROLE_INFO, GPT_REQUEST_TEMPLATE } from '../../constants'
 
 export async function waitMs(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -125,6 +126,9 @@ export type FormatedChatThreadItem = {
   content: string
 }
 
+const tokenEnc = tiktoken.encoding_for_model('gpt-3.5-turbo')
+const MAX_TOKENS = GPT_REQUEST_TEMPLATE["max_tokens"] as number
+
 export function formatChatThread(thread: ChatThread): FormatedChatThreadItem[] {
   const ret: FormatedChatThreadItem[] = [GPT_SYSTEM_ROLE_INFO as any]
   if (!thread.messages) {
@@ -137,12 +141,35 @@ export function formatChatThread(thread: ChatThread): FormatedChatThreadItem[] {
     }
     return a.createTime.getTime() - b.createTime.getTime()
   })
-  for (const message of messages) {
-    ret.push({ role: 'user', content: message.content })
+
+  let tokenCount = 0
+  for (let i = messages.length - 1; i >= 0; --i) {
+    const message = messages[i]
     const reply = message.replies.find((reply) => isReplyValid(reply))
     if (reply) {
+      const tokens = tokenEnc.encode(JSON.stringify({ role: 'assistant', content: reply.reply! }))
+      if (tokenCount + tokens.length > MAX_TOKENS) {
+        console.warn(`skip oldest ${i} messages due to token limit: ${tokenCount} + ${tokens.length} > ${MAX_TOKENS}`)
+        break
+      }
+      tokenCount += tokens.length
       ret.push({ role: 'assistant', content: reply.reply! })
     }
+    const tokens = tokenEnc.encode(JSON.stringify({ role: 'user', content: message.content }))
+    if (tokenCount + tokens.length > MAX_TOKENS) {
+      console.warn(`skip oldest ${i} messages due to token limit: ${tokenCount} + ${tokens.length} > ${MAX_TOKENS}`)
+      break
+    }
+    tokenCount += tokens.length
+    ret.push({ role: 'user', content: message.content })
   }
+
+  for (let i = 1; i < ret.length - i; ++i) {
+    const j = ret.length - i
+    const tmp = ret[i]
+    ret[i] = ret[j]
+    ret[j] = tmp
+  }
+
   return ret
 }
