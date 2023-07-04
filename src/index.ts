@@ -82,8 +82,6 @@ console.error('process.env.NODE_ENV: ', process.env.NODE_ENV);
     const startAt = new Date()
     console.log(`[${reqId}] [${startAt.toISOString()}] ${req.method} ${req.host} ${req.url}`)
     next()
-    const endAt = new Date()
-    console.log(`[${reqId}] [${endAt.toISOString()}] ${req.method} ${req.host} ${req.url}: ${endAt.getTime() - startAt.getTime()}ms`)
   })
 
   app.get('/302setcookie', (req, res) => {

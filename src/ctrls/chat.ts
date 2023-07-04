@@ -74,10 +74,12 @@ async function sendXmlReply(res: express.Response, wechatEvent: WechatBaseEvent,
   const replyXml = new xml2js.Builder().buildObject({ xml: replyMessage })
   try {
     res.type('application/xml')
+    console.log(`[${res.locals.reqId}] [${new Date().toISOString()}] sendReply start`)
     await sendResult(res, 200, replyXml)
+    console.log(`[${res.locals.reqId}] [${new Date().toISOString()}] sendReply finish`)
     return true
   } catch (error) {
-    console.error(`[${res.locals.reqId}] sendReply fail: ${error}`)
+    console.error(`[${res.locals.reqId}] [${new Date().toISOString()}] sendReply fail: ${error}`)
     return false
   }
 }
@@ -347,10 +349,8 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
               'Content-Type': 'application/json'
             }
           })
-        console.log(`[${res.locals.reqId}] gpt req completes: ${new Date().getTime() - now.getTime()}ms`)
-
         const gptRespData = gptResp.data
-        console.log(`[${res.locals.reqId}] res: ${JSON.stringify(gptRespData, null, 4)}`)
+        console.log(`[${res.locals.reqId}] [${new Date().toISOString()}] gpt req completes with res: ${JSON.stringify(gptRespData, null, 4)}`)
 
         const { content } = _.get(gptRespData, ['choices', 0, 'message'], {})
         const { finish_reason: finishReason } = _.get(gptRespData, ['choices', 0], {})
@@ -361,13 +361,13 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
           try {
             await getChatThreadRepo().update(thread.id, { completed: true, updatedAt: new Date() })
           } catch (error) {
-            console.error(`[${res.locals.reqId}] update thread completed error: ${error}`)
+            console.error(`[${res.locals.reqId}] [${new Date().toISOString()}] update thread completed error: ${error}`)
           }
         }
 
         const replyContent = content || ''
         if (gptResp.status !== 200 || !replyContent) {
-          console.error(`[${res.locals.reqId}] gpt api return invalid data: ${gptResp.status}, ${JSON.stringify(gptResp.data, null, 4)}`)
+          console.error(`[${res.locals.reqId}] [${new Date().toISOString()}] gpt api return invalid data: ${gptResp.status}, ${JSON.stringify(gptResp.data, null, 4)}`)
           return ''
         }
         if (isFinished) {
@@ -431,8 +431,9 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
           data.replied = true
         }
         await markReplyAsReplied(newReply.id, data)
+        console.log(`[${res.locals.reqId}] [${new Date().toISOString()}] markReplySuccess success`)
       } catch (error) {
-        console.error(`[${res.locals.reqId}] markReplySuccess error: ${error}`)
+        console.error(`[${res.locals.reqId}] [${new Date().toISOString()}] markReplySuccess error: ${error}`)
       }
     } else if (validReply && replied) {
       await markReplyAsReplied(validReply.id, { replied })
@@ -447,6 +448,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
       const newChatMessage = await getChatMessageRepo().findOne({
         where: { id: chatMessage.id },
       })
+      console.log(`[${res.locals.reqId}] [${new Date().toISOString()}] check chatMessage ${i}`)
       if (!newChatMessage) {
         continue
       }
@@ -457,7 +459,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
     }
 
     if (!validReply) {
-      console.error(`[${res.locals.reqId}] failed to poll reply ${tries}: ${res.locals.reqId}`)
+      console.error(`[${res.locals.reqId}] [${new Date().toISOString()}] failed to poll reply ${tries}: ${res.locals.reqId}`)
       // res.status(500).send(`failed to poll reply: ${res.locals.reqId}`)
       // second try: no reply
       // third try: reply a web page for client to poll further
