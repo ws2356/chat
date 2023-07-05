@@ -142,7 +142,7 @@ export function formatChatThread(thread: ChatThread): FormatedChatThreadItem[] {
     return a.createTime.getTime() - b.createTime.getTime()
   })
 
-  let tokenCount = 0
+  let tokenCount = tokenEnc.encode(JSON.stringify(ret[0])).length
   for (let i = messages.length - 1; i >= 0; --i) {
     const message = messages[i]
     const reply = message.replies.find((reply) => isReplyValid(reply))
