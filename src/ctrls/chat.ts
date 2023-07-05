@@ -441,8 +441,8 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
   } else if (!newReply) {
     // polls
     let validReply: ChatReply | undefined
-    // if last try, poll 2 times otherwise 5 times
-    const pollTime = tries === 3 ? 2 : 5
+    // if last try, poll 2 times otherwise 4 times
+    const pollTime = tries === 3 ? 2 : 4
     for (let i = 0; i < pollTime; ++i) {
       await waitMs(1000)
       const newChatMessage = await getChatMessageRepo().findOne({
@@ -459,7 +459,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
     }
 
     if (!validReply) {
-      console.error(`[${res.locals.reqId}] [${new Date().toISOString()}] failed to poll reply ${tries}: ${res.locals.reqId}`)
+      console.error(`[${res.locals.reqId}] [${new Date().toISOString()}] failed to poll reply ${tries}`)
       // res.status(500).send(`failed to poll reply: ${res.locals.reqId}`)
       // second try: no reply
       // third try: reply a web page for client to poll further
