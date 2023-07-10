@@ -1,0 +1,43 @@
+@startuml
+skinparam handwritten true
+title Wechat-GPT Architecture
+
+actor       Wechat as wechat
+participant Backend as backend
+participant ChatGpt as gpt
+
+group 1st try
+wechat -> backend: Send message
+backend -> backend: Get conversation history
+backend -> gpt: Send prompt: { history, message }
+backend <- gpt: Text Response
+wechat <- backend: Text Response
+end group
+
+group 2nd try
+wechat -> backend: Send message
+backend -> backend: Check message id exists
+loop 4 times
+backend -> backend: Poll database
+end
+wechat <- backend: Text Response
+end group
+
+group 3rd try
+wechat -> backend: Send message
+backend -> backend: Check message id exists
+loop 2 times
+backend -> backend: Poll database
+end
+
+group Poll success
+wechat <- backend: Text Response
+end group
+
+group Poll failure
+wechat <- backend: Html Response containing a link
+end group
+
+end group
+
+@enduml
