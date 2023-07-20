@@ -56,7 +56,7 @@ export type MessageOptions = {
   newThread?: boolean
 }
 
-const MessageOptionRegexp = /^(换个话题[ ，。,.])?(想清楚再回答[ ，。,.])?/
+const MessageOptionRegexp = /^(换个话题[ ，。,.])?(说真的[ ，。,.])?/
 
 export function getMessageOptions(msg: string): MessageOptions {
   const options: MessageOptions = { optionLength: 0 }
