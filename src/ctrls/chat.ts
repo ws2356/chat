@@ -353,28 +353,12 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
         console.log(`[${res.locals.reqId}] [${new Date().toISOString()}] gpt req completes with res: ${JSON.stringify(gptRespData, null, 4)}`)
 
         const { content } = _.get(gptRespData, ['choices', 0, 'message'], {})
-        const { finish_reason: finishReason } = _.get(gptRespData, ['choices', 0], {})
-        const isFinished = ['length'].includes(finishReason)
-
-        if (isFinished) {
-          const thread = chatMessage!.chatThread!
-          try {
-            await getChatThreadRepo().update(thread.id, { completed: true, updatedAt: new Date() })
-          } catch (error) {
-            console.error(`[${res.locals.reqId}] [${new Date().toISOString()}] update thread completed error: ${error}`)
-          }
-        }
-
         const replyContent = content || ''
         if (gptResp.status !== 200 || !replyContent) {
           console.error(`[${res.locals.reqId}] [${new Date().toISOString()}] gpt api return invalid data: ${gptResp.status}, ${JSON.stringify(gptResp.data, null, 4)}`)
           return ''
         }
-        if (isFinished) {
-          return `${replyContent} 本次对话已结束，请开始新的话题。`
-        } else {
-          return replyContent
-        }
+        return replyContent
       } catch (error: any) {
         console.error(`[${res.locals.reqId}] gpt api error: ${error}`)
         throw error

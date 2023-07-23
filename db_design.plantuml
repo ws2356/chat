@@ -1,0 +1,36 @@
+@startuml
+title Wechat Gpt Database Design
+!include http://plantuml.wansong.vip/plugins/DatabaseLogical.iuml
+
+Table(thread, Thread, Thread) {
+	primary()
+	user_id int(64)
+}
+note right of thread
+A thread has many messages.
+end note
+
+Table(message, Message, Message) {
+	primary()
+	user_id int(64)
+	not_null(thread_id, int(64))
+	not_null(wechat_msg_id, string(64))
+  not_null(content, text)
+  not_null(tries, int(16))
+  idx2(user_id, msg_id)
+}
+onemany(thread, message, 'A thread has many messages.')
+note right of message
+A message is received from wechat server.
+wechat_msg_id is the message id defined by wechat server.
+"tries" field is the number of times wechat has tried to send this message.
+end note
+
+Table(reply, Reply, Reply to Message) {
+	primary()
+  not_null(message_id, int(64))
+  not_null(reply, text)
+}
+oneone(message, reply, 'A message has one reply.')
+
+@enduml

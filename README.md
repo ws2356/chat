@@ -5,4 +5,6 @@
 See doc: https://mp.weixin.qq.com/s/rIR8mnPlZusQfXHsZpL1CAo
 
 ## Architecture
-[architecture](architecture.plantuml)
+[Sequence Diagram](architecture.plantuml)
+### Edge cases
+1. DNS resolution failure (EAI_AGAIN)

@@ -8,15 +8,17 @@ participant ChatGpt as gpt
 
 group 1st try
 wechat -> backend: Send message
+backend -> backend: check sha1(token + nonce + timestamp)
 backend -> backend: Get conversation history
 backend -> gpt: Send prompt: { history, message }
 backend <- gpt: Text Response
 wechat <- backend: Text Response
+backend -> backend: Save conversation history
 end group
 
 group 2nd try
 wechat -> backend: Send message
-backend -> backend: Check message id exists
+backend -> backend: check sha1(token + nonce + timestamp)
 loop 4 times
 backend -> backend: Poll database
 end
@@ -25,7 +27,7 @@ end group
 
 group 3rd try
 wechat -> backend: Send message
-backend -> backend: Check message id exists
+backend -> backend: check sha1(token + nonce + timestamp)
 loop 2 times
 backend -> backend: Poll database
 end
