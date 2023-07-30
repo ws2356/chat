@@ -1,0 +1,30 @@
+@startuml
+title Wechat Gpt Database Design
+
+entity Thread {
+	id <<primary key>>
+	--
+	user_id: string
+}
+
+entity Message {
+	id <<primary key>>
+	--
+	user_id: string
+	thread_id: number <<foreign key>>
+	wechat_msg_id: string
+	tries: number
+	content: text
+}
+
+entity Reply {
+	id <<primary key>>
+	--
+	message_id: number <<foreign key>>
+	reply: text
+}
+
+Thread ||--|{ Message
+Message ||--|| Reply
+
+@enduml
