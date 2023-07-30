@@ -8,3 +8,9 @@ See doc: https://mp.weixin.qq.com/s/rIR8mnPlZusQfXHsZpL1CAo
 [Sequence Diagram](architecture.plantuml)
 ### Edge cases
 1. DNS resolution failure (EAI_AGAIN)
+
+## Caveats
+1. OpenAI permission is granted to your subscription. When that subscription is expired, you may need to submit an OpenAI application form again ...
+2. How to avoid reaching token length limit?
+3. Variable temperature.
+4. Start a new thread.
