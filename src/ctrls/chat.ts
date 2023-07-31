@@ -11,6 +11,8 @@ import { ChatReply } from '../entity/chat_reply'
 import { ChatThread } from '../entity/chat_thread'
 
 
+const MAX_TOKENS = GPT_REQUEST_TEMPLATE["max_tokens"] as number
+
 type SupportedMsgType = 'text' | 'voice' | 'event'
 
 interface WechatBaseEvent {
@@ -300,7 +302,12 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
     if (chatMessage) {
       const thread = chatMessage.chatThread
       if (thread) {
-        thread.messages = await getChatMessageRepo().find({ where: { chatThread: thread } })
+        // MAX_TOKENS is a very conserverative limit so we won't missing any message falsely
+        thread.messages = await getChatMessageRepo().find({
+          where: { chatThread: thread },
+          order: { createTime: 'DESC' },
+          take: MAX_TOKENS,
+        })
       }
     }
     return { chatMessage, validReply, newReply }
