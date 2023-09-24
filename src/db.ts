@@ -13,6 +13,9 @@ export const dataSource = new DataSource({
   ...dbConfig,
     entities: [ChatMessage, ChatReply, ChatSubscription, ChatThread],
     loggerLevel: 'warn',
+    poolErrorHandler(err) {
+      console.error('dataSource: poolErrorHandler fired. ', err)
+    },
 })
 
 export async function initDb() {
