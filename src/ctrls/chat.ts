@@ -9,6 +9,7 @@ import { getGptRequestCache, setGptRequestCache, waitMs, verifyWechatSignature, 
 import { AUTH_TYPE_MLGB, GPT_API_URL, GPT_REQUEST_TEMPLATE, GPT_SYSTEM_ROLE_INFO } from '../constants'
 import { ChatReply } from '../entity/chat_reply'
 import { ChatThread } from '../entity/chat_thread'
+import { getMessageById } from './helper/chat_helper'
 
 
 const MAX_TOKENS = GPT_REQUEST_TEMPLATE["max_tokens"] as number
@@ -484,5 +485,29 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
   } else {
     console.error(`[${res.locals.reqId}] first run gpt request failed`)
     res.status(500).send(`server fail: ${res.locals.reqId}`)
+  }
+}
+
+export async function getMessage(req: express.Request, res: express.Response) {
+  const { id } = req.params as { id: string }
+  const idNum = parseInt(id, 10)
+  if (isNaN(idNum)) {
+    res.status(400).send('invalid id')
+    return
+  }
+
+  let data: { message: string, replies: string[] } | null = null
+  try {
+    data = await getMessageById(idNum)
+    if (!data) {
+      res.status(404).send('not found')
+      return
+    }
+    const payload = { code: 0, data }
+    res.type('application/json').send(JSON.stringify(payload))
+  } catch (error) {
+    console.error(`server failed: ${error}`)
+    res.status(500).send(`server failed`)
+    return
   }
 }
