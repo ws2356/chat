@@ -116,3 +116,4 @@ docker run -d \
   --name "$container_name" \
   "$image_name_version"
 
+docker image save -o chat.tar "$image_name_version"
