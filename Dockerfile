@@ -28,6 +28,7 @@ COPY --chown=node:node \
 RUN npm --omit=dev install
 
 COPY --from=build --chown=node:node /app/dist/ ./dist/
+COPY --chown=node:node public/ ./dist/public/
 
 EXPOSE 8030
 

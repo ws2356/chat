@@ -38,6 +38,7 @@ console.error('process.env.NODE_ENV: ', process.env.NODE_ENV);
   app.use(cors({
     origin: /(\/\/|\.)wansong\.vip(\/|$)|^http:\/\/localhost:803[0-9]/,
   }))
+  app.use(express.static('public'))
 
   app.get('/message/:id', async (req, res) => {
     const { id } = req.params as { id: string }
@@ -46,34 +47,8 @@ console.error('process.env.NODE_ENV: ', process.env.NODE_ENV);
       res.status(400).send('invalid id')
       return
     }
-
-    let data: { message: string, replies: string[] } | null = null
-    try {
-      data = await getMessageById(idNum)
-      if (!data) {
-        res.status(404).send('not found')
-        return
-      }
-      if (!data.replies || data.replies.length === 0) {
-        res.status(200).send('refresh to get replies')
-        return
-      }
-    } catch (error) {
-      console.error(`server failed: ${error}`)
-      res.status(500).send(`server failed`)
-      return
-    }
-
-    ejs.renderFile('src/templates/page.ejs',
-      { message: data.message, reply: data.replies[0] },
-      (err, result) => {
-        if (err) {
-          res.status(500).send(`ejs render failed: ${err}`)
-        } else {
-          res.type('text/html')
-          res.send(result)
-        }
-      })
+    // res.type('text/html').status(200).send(MessagePageHtml)
+    res.status(302).redirect(`/fe/index.html?id=${id}`)
   })
 
   app.use((req, res, next) => {

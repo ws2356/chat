@@ -93,6 +93,12 @@ else
   prepare_dev
 fi
 
+(rm -rf "$root_dir/public/fe" && \
+  mkdir -p "$root_dir/public" && \
+  cd "$root_dir/fe" && \
+  npm run build && \
+  mv build "$root_dir/public/fe")
+
 docker container stop "$container_name" 2>/dev/null \
   && docker container rm "$container_name" 2>/dev/null \
   || true
