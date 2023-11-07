@@ -38,7 +38,7 @@ console.error('process.env.NODE_ENV: ', process.env.NODE_ENV);
   app.use(cors({
     origin: /(\/\/|\.)wansong\.vip(\/|$)|^http:\/\/localhost:803[0-9]/,
   }))
-  app.use(express.static('public'))
+  app.use(express.static('public', { cacheControl: true, etag: true, maxAge: 3600000 }))
 
   app.get('/message/:id', async (req, res) => {
     const { id } = req.params as { id: string }
