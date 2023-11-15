@@ -56,7 +56,8 @@ export type MessageOptions = {
   newThread?: boolean
 }
 
-const MessageOptionRegexp = /^(换个话题[ ，。,.])?(说真的[ ，。,.])?/
+// TODO: auto wrap
+const MessageOptionRegexp = /^([。.;])+/
 
 export function getMessageOptions(msg: string): MessageOptions {
   const options: MessageOptions = { optionLength: 0 }
