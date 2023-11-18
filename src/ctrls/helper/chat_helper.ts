@@ -57,7 +57,7 @@ export type MessageOptions = {
 }
 
 // TODO: auto wrap
-const MessageOptionRegexp = /^([。.;])+/
+const MessageOptionRegexp = /^([。.;])+[ ]*/
 
 export function getMessageOptions(msg: string): MessageOptions {
   const options: MessageOptions = { optionLength: 0 }

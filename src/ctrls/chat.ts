@@ -464,7 +464,7 @@ export async function handleWechatEvent(req: express.Request, res: express.Respo
             CreateTime,
             MsgType,
           },
-          `点击<a href="${req.protocol}://${req.host}/message/${chatMessage.id}">链接</a>查看回复`
+          `点击<a href="https://${req.host}/message/${chatMessage.id}">链接</a>查看回复`
         )
       }
     } else {
